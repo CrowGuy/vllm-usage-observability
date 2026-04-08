@@ -1,0 +1,304 @@
+groups:
+  - name: vllm_usage_rules
+    interval: 30s
+    rules:
+      - record: usage:requests:rate5m
+        expr: |
+          sum by (model_name) (
+            rate(vllm:request_success_total{finished_reason=~"stop|length"}[5m])
+          )
+
+      - record: usage:requests:increase1h
+        expr: |
+          sum by (model_name) (
+            increase(vllm:request_success_total{finished_reason=~"stop|length"}[1h])
+          )
+
+      - record: usage:requests:rolling24h
+        expr: |
+          sum by (model_name) (
+            increase(vllm:request_success_total{finished_reason=~"stop|length"}[24h])
+          )
+
+      - record: usage:prompt_tokens:rate5m
+        expr: |
+          sum by (model_name) (
+            rate(vllm:prompt_tokens_total[5m])
+          )
+
+      - record: usage:prompt_tokens:increase1h
+        expr: |
+          sum by (model_name) (
+            increase(vllm:prompt_tokens_total[1h])
+          )
+
+      - record: usage:prompt_tokens:rolling24h
+        expr: |
+          sum by (model_name) (
+            increase(vllm:prompt_tokens_total[24h])
+          )
+
+      - record: usage:generation_tokens:rate5m
+        expr: |
+          sum by (model_name) (
+            rate(vllm:generation_tokens_total[5m])
+          )
+
+      - record: usage:generation_tokens:increase1h
+        expr: |
+          sum by (model_name) (
+            increase(vllm:generation_tokens_total[1h])
+          )
+
+      - record: usage:generation_tokens:rolling24h
+        expr: |
+          sum by (model_name) (
+            increase(vllm:generation_tokens_total[24h])
+          )
+
+      - record: usage:tokens:rate5m
+        expr: |
+          sum by (model_name) (
+            rate(vllm:prompt_tokens_total[5m])
+          )
+          +
+          sum by (model_name) (
+            rate(vllm:generation_tokens_total[5m])
+          )
+
+      - record: usage:tokens:increase1h
+        expr: |
+          sum by (model_name) (
+            increase(vllm:prompt_tokens_total[1h])
+          )
+          +
+          sum by (model_name) (
+            increase(vllm:generation_tokens_total[1h])
+          )
+
+      - record: usage:tokens:rolling24h
+        expr: |
+          sum by (model_name) (
+            increase(vllm:prompt_tokens_total[24h])
+          )
+          +
+          sum by (model_name) (
+            increase(vllm:generation_tokens_total[24h])
+          )
+
+  - name: vllm_runtime_rules
+    interval: 30s
+    rules:
+      - record: runtime:requests_running
+        expr: |
+          sum by (model_name) (
+            vllm:num_requests_running
+          )
+
+      - record: runtime:requests_waiting
+        expr: |
+          sum by (model_name) (
+            vllm:num_requests_waiting
+          )
+
+      - record: runtime:kv_cache_usage_perc
+        expr: |
+          max by (model_name) (
+            vllm:kv_cache_usage_perc
+          )
+
+      - record: runtime:prefix_cache_queries:rate5m
+        expr: |
+          sum by (model_name) (
+            rate(vllm:prefix_cache_queries_total[5m])
+          )
+
+      - record: runtime:prefix_cache_hits:rate5m
+        expr: |
+          sum by (model_name) (
+            rate(vllm:prefix_cache_hits_total[5m])
+          )
+
+      - record: runtime:prefix_cache_hit_rate5m
+        expr: |
+          (
+            sum by (model_name) (
+              rate(vllm:prefix_cache_hits_total[5m])
+            )
+          )
+          /
+          clamp_min(
+            sum by (model_name) (
+              rate(vllm:prefix_cache_queries_total[5m])
+            ),
+            1
+          )
+
+      - record: runtime:preemptions:increase1h
+        expr: |
+          sum by (model_name) (
+            increase(vllm:num_preemptions_total[1h])
+          )
+
+  - name: vllm_latency_rules
+    interval: 30s
+    rules:
+      - record: latency:ttft:p95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, model_name) (
+              rate(vllm:time_to_first_token_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:ttft:p99
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, model_name) (
+              rate(vllm:time_to_first_token_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:itl:p95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, model_name) (
+              rate(vllm:inter_token_latency_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:itl:p99
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, model_name) (
+              rate(vllm:inter_token_latency_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:e2e:p95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, model_name) (
+              rate(vllm:e2e_request_latency_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:e2e:p99
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, model_name) (
+              rate(vllm:e2e_request_latency_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:queue_time:p95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, model_name) (
+              rate(vllm:request_queue_time_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:inference_time:p95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, model_name) (
+              rate(vllm:request_inference_time_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:prefill_time:p95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, model_name) (
+              rate(vllm:request_prefill_time_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:decode_time:p95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, model_name) (
+              rate(vllm:request_decode_time_seconds_bucket[5m])
+            )
+          )
+
+  - name: vllm_service_rules
+    interval: 30s
+    rules:
+      - record: service:up:raw
+        expr: |
+          max by (job) (
+            up{job="vllm"}
+          )
+
+      - record: service:business_day:asia_taipei
+        expr: |
+          (
+            (day_of_week(vector(time() + 8 * 3600)) >= 1)
+            and
+            (day_of_week(vector(time() + 8 * 3600)) <= 5)
+          )
+
+      - record: service:availability:business_hours
+        expr: |
+          max by (job) (
+            up{job="vllm"}
+          )
+          *
+          on()
+          group_left()
+          service:business_day:asia_taipei
+
+      - record: service:expected_up:business_hours
+        expr: |
+          service:business_day:asia_taipei
+
+  - name: vllm_http_rules
+    interval: 30s
+    rules:
+      - record: http:requests:rate5m
+        expr: |
+          sum by (handler, method, status) (
+            rate(http_requests_total[5m])
+          )
+
+      - record: http:chat_completions:requests:rate5m
+        expr: |
+          sum by (status) (
+            rate(http_requests_total{handler="/v1/chat/completions",method="POST"}[5m])
+          )
+
+      - record: http:chat_completions:error_rate5m
+        expr: |
+          (
+            sum(
+              rate(http_requests_total{handler="/v1/chat/completions",method="POST",status=~"4xx|5xx"}[5m])
+            )
+          )
+          /
+          clamp_min(
+            sum(
+              rate(http_requests_total{handler="/v1/chat/completions",method="POST"}[5m])
+            ),
+            1
+          )
+
+      - record: http:chat_completions:latency:p95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(http_request_duration_highr_seconds_bucket[5m])
+            )
+          )
