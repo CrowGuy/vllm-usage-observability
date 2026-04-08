@@ -264,14 +264,177 @@ Provides high-level business metrics:
 
 ---
 
-### Engineering Dashboard (Phase 2)
+### Engineering Dashboard
 
-Will include:
+The Engineering Dashboard provides **real-time diagnostic visibility** into the vLLM service.
 
-* latency breakdown
-* queue vs inference time
-* cache efficiency
-* error rates
+Unlike the Management Dashboard (which focuses on usage and business metrics), this dashboard is designed to help engineers answer:
+
+* Is the system under load?
+* Where is latency coming from?
+* Is the cache working effectively?
+* Are API errors increasing?
+* Is the service healthy?
+
+---
+
+#### Key Sections
+
+##### 1. Runtime / Concurrency
+
+Panels:
+
+* Requests Running
+* Requests Waiting
+* Request Concurrency (time series)
+
+How to interpret:
+
+* `running ↑` → system is actively processing
+* `waiting ↑` → queue is building → potential overload
+* `waiting + latency ↑` → queue bottleneck
+
+---
+
+##### 2. Latency Overview
+
+Panels:
+
+* E2E latency p95
+* TTFT p95 (time to first token)
+* ITL p95 (inter-token latency)
+
+How to interpret:
+
+* **E2E ↑** → overall user experience degraded
+* **TTFT ↑** → prompt processing / prefill issue
+* **ITL ↑** → token generation slowdown
+
+---
+
+##### 3. Latency Breakdown
+
+Panels:
+
+* Queue time p95
+* Prefill time p95
+* Decode time p95
+* Inference time p95
+
+How to interpret:
+
+| Symptom     | Likely Cause                  |
+| ----------- | ----------------------------- |
+| queue ↑     | too many concurrent requests  |
+| prefill ↑   | long prompts / CPU bottleneck |
+| decode ↑    | GPU throughput issue          |
+| inference ↑ | overall compute slowdown      |
+
+---
+
+##### 4. Cache Efficiency
+
+Panels:
+
+* KV Cache Usage
+* Prefix Cache Hit Rate
+
+How to interpret:
+
+* **KV cache near 1.0** → memory pressure risk
+* **low hit rate** → cache ineffective → higher latency
+* **high hit rate** → reuse working → better performance
+
+---
+
+##### 5. HTTP / API Layer
+
+Panels:
+
+* Requests by status
+* Error rate (5m)
+* HTTP latency p95
+
+How to interpret:
+
+* **4xx ↑** → client issues (bad request)
+* **5xx ↑** → server issues
+* **latency ↑ + errors ↑** → system instability
+
+---
+
+##### 6. Service Health
+
+Panels:
+
+* Service Up
+
+How to interpret:
+
+* `UP` → metrics being scraped successfully
+* `DOWN` → service unreachable or stopped
+
+---
+
+#### Typical Debugging Workflow
+
+##### Scenario 1 — Service is Slow
+
+1. Check **Latency Overview**
+2. Identify which metric increases:
+
+   * TTFT → prompt/preprocessing issue
+   * ITL → generation slowdown
+3. Go to **Latency Breakdown**
+4. Confirm root cause:
+
+   * queue → overload
+   * prefill → prompt size
+   * decode → GPU issue
+
+---
+
+##### Scenario 2 — Throughput Drop
+
+1. Check **Request Concurrency**
+2. If:
+
+   * running ↓ and waiting ↑ → queue blockage
+3. Check **Cache Efficiency**
+4. Check **HTTP errors**
+
+---
+
+##### Scenario 3 — Errors Increasing
+
+1. Check **HTTP status panel**
+2. Identify:
+
+   * 4xx → client-side
+   * 5xx → server-side
+3. Correlate with:
+
+   * latency spike
+   * queue increase
+
+---
+
+##### Scenario 4 — After Restart
+
+Expected behavior:
+
+* raw counters reset to zero
+* dashboard remains functional
+* latency / runtime panels continue normally
+
+---
+
+## Notes
+
+* This dashboard is intended for **engineering debugging**, not business reporting
+* All panels are based on **recording rules (canonical metrics)** to ensure stability
+* Short time windows (e.g. last 6h) are recommended for analysis
+* Works correctly even with ephemeral containers (`docker run --rm`)
 
 ---
 
