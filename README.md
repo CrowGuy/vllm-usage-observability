@@ -438,6 +438,206 @@ Expected behavior:
 
 ---
 
+## Alerting
+
+The system includes a set of **Prometheus-based alerts** to detect service issues and performance degradation.
+
+Alerts are designed to be:
+
+* based on **canonical metrics (recording rules)**
+* aware of **business hours (weekday-only availability)**
+* focused on **actionable signals**, not noise
+
+---
+
+## Alert Categories
+
+### 1. Service Availability
+
+Detects when the vLLM service is down **during expected business hours**.
+
+* Alert: `VLLMServiceDownBusinessHours`
+* Severity: `critical`
+
+Key behavior:
+
+* Will **not trigger on weekends**
+* Triggers only when the service is expected to be running
+
+---
+
+### 2. API Errors
+
+Detects elevated HTTP error rates for chat completion requests.
+
+* Alert: `VLLMChatErrorRateHigh`
+* Severity: `warning`
+
+Triggered when:
+
+* error rate > 5% for sustained period
+
+---
+
+### 3. Latency Degradation
+
+Detects slow responses from the model.
+
+* Alert: `VLLME2ELatencyP95High`
+* Severity: `warning`
+
+Indicates:
+
+* degraded user experience
+* possible overload or compute bottleneck
+
+---
+
+### 4. Queue / Backlog
+
+Detects request congestion and queue buildup.
+
+* Alerts:
+
+  * `VLLMQueueTimeP95High`
+  * `VLLMRequestsWaitingHigh`
+* Severity: `warning`
+
+Indicates:
+
+* system is overloaded
+* requests are waiting before execution
+
+---
+
+### 5. Cache Efficiency
+
+Detects inefficient cache usage.
+
+* Alert: `VLLMPrefixCacheHitRateLow`
+* Severity: `info`
+
+Indicates:
+
+* prefix cache is not effective
+* may impact performance
+
+---
+
+### 6. Traffic Anomaly
+
+Detects unexpected drop in traffic during business hours.
+
+* Alert: `VLLMTrafficDropBusinessHours`
+* Severity: `info`
+
+Indicates:
+
+* service is up but receiving no traffic
+* possible upstream issue
+
+---
+
+## How Alerts Work
+
+Alerts are defined in:
+
+```id="q2y64f"
+deploy/prometheus/alerts.yml
+```
+
+Loaded via:
+
+```id="d2y47m"
+deploy/prometheus/prometheus.yml
+```
+
+Prometheus evaluates rules every:
+
+```id="2fq5xx"
+30 seconds
+```
+
+---
+
+## How to View Alerts
+
+Open Prometheus UI:
+
+```id="2j0b6r"
+http://localhost:9090
+```
+
+Navigate to:
+
+```id="zmnq5c"
+Alerts
+```
+
+You will see:
+
+* Pending alerts
+* Firing alerts
+
+---
+
+## How to Validate Alerts
+
+### Service Down
+
+```bash id="p3k6t9"
+docker stop <vllm-container>
+```
+
+* Wait ~5 minutes
+* Verify alert fires (weekday only)
+
+---
+
+### Error Rate
+
+Send invalid requests (bad payloads)
+
+Check:
+
+```promql id="7v0u7y"
+http:chat_completions:error_rate5m
+```
+
+---
+
+### Latency / Queue
+
+Generate load (concurrent requests)
+
+Observe:
+
+```promql id="8pq0z3"
+latency:e2e:p95
+latency:queue_time:p95
+runtime:requests_waiting
+```
+
+---
+
+### Traffic Drop
+
+Stop sending requests while service is running
+
+* Wait ~30 minutes
+* Verify alert fires during business hours
+
+---
+
+## Notes
+
+* Alerts are **rule-based**, not statistical
+* Thresholds are **initial defaults** and should be tuned over time
+* Alerts do not yet send notifications (Phase 3B)
+
+---
+
+
 ## Troubleshooting
 
 ### Target Down

@@ -1,0 +1,105 @@
+groups:
+  - name: vllm_alerts
+    interval: 30s
+    rules:
+      - alert: VLLMServiceDownBusinessHours
+        expr: |
+          (
+            service:expected_up:business_hours == 1
+          )
+          and
+          (
+            max(service:up:raw) == 0
+          )
+        for: 5m
+        labels:
+          severity: critical
+          category: availability
+          service: vllm
+        annotations:
+          summary: "vLLM service is down during business hours"
+          description: "Prometheus cannot scrape the vLLM target for more than 5 minutes during expected business days."
+
+      - alert: VLLMChatErrorRateHigh
+        expr: |
+          http:chat_completions:error_rate5m > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          category: api
+          service: vllm
+        annotations:
+          summary: "High chat completion error rate"
+          description: "HTTP chat completion error rate is above 5% for more than 10 minutes."
+
+      - alert: VLLME2ELatencyP95High
+        expr: |
+          avg(latency:e2e:p95) > 20
+        for: 10m
+        labels:
+          severity: warning
+          category: latency
+          service: vllm
+        annotations:
+          summary: "High end-to-end latency"
+          description: "p95 end-to-end latency is above 20 seconds for more than 10 minutes."
+
+      - alert: VLLMQueueTimeP95High
+        expr: |
+          avg(latency:queue_time:p95) > 1
+        for: 10m
+        labels:
+          severity: warning
+          category: queue
+          service: vllm
+        annotations:
+          summary: "High queue time"
+          description: "p95 request queue time is above 1 second for more than 10 minutes, indicating backlog or overload."
+
+      - alert: VLLMRequestsWaitingHigh
+        expr: |
+          sum(runtime:requests_waiting) > 5
+        for: 10m
+        labels:
+          severity: warning
+          category: runtime
+          service: vllm
+        annotations:
+          summary: "Too many waiting requests"
+          description: "The number of waiting requests is above 5 for more than 10 minutes."
+
+      - alert: VLLMPrefixCacheHitRateLow
+        expr: |
+          avg(runtime:prefix_cache_hit_rate5m) < 0.30
+          and
+          sum(http:chat_completions:requests:rate5m) > 0.05
+        for: 15m
+        labels:
+          severity: info
+          category: cache
+          service: vllm
+        annotations:
+          summary: "Low prefix cache hit rate"
+          description: "Prefix cache hit rate is below 30% while the service is receiving traffic."
+
+      - alert: VLLMTrafficDropBusinessHours
+        expr: |
+          (
+            service:expected_up:business_hours == 1
+          )
+          and
+          (
+            sum(http:chat_completions:requests:rate5m) < 0.001
+          )
+          and
+          (
+            max(service:up:raw) == 1
+          )
+        for: 30m
+        labels:
+          severity: info
+          category: traffic
+          service: vllm
+        annotations:
+          summary: "Traffic dropped during business hours"
+          description: "Chat completion request rate is near zero for more than 30 minutes during expected business days while the service is up."
