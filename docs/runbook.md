@@ -2,14 +2,30 @@
 
 ## Overview
 
-This runbook provides step-by-step guidance for responding to alerts in the VLLM observability system.
+This runbook provides operational guidance for responding to alerts in a **multi-instance vLLM environment**.
 
-When an alert fires:
+It helps engineers:
 
-1. Identify the alert type
-2. Open the Engineering Dashboard
-3. Use PromQL queries to confirm the issue
-4. Apply initial mitigation steps
+* identify failing instances
+* diagnose performance issues
+* distinguish between local and global problems
+* apply mitigation steps quickly
+
+---
+
+## System Model
+
+The system consists of:
+
+* multiple vLLM instances
+* Prometheus (metrics + alerting)
+* Grafana dashboards
+
+Key dimensions:
+
+* `instance_name` → node-level debugging
+* `model_name` → usage aggregation
+* `env` / `region` → deployment scope
 
 ---
 
@@ -17,80 +33,75 @@ When an alert fires:
 
 ### Step 1 — Identify Alert
 
-From Prometheus Alerts page:
+From Prometheus:
 
 * alert name
 * severity
-* duration
+* scope:
+
+  * `instance`
+  * `global`
 
 ---
 
-### Step 2 — Open Dashboard
+### Step 2 — Determine Scope
 
-Open Grafana:
+| Scope    | Meaning                 |
+| -------- | ----------------------- |
+| instance | one node affected       |
+| global   | entire service affected |
+
+---
+
+### Step 3 — Open Dashboard
 
 ```text
 http://localhost:3000
 ```
 
-Go to:
+Use:
 
-```text
-VLLM Usage - Engineering
+* **Engineering Dashboard** → debugging
+* **Management Dashboard** → overall health
+
+---
+
+### Step 4 — Apply Playbook
+
+Follow the relevant section below.
+
+---
+
+# Alert Playbooks
+
+---
+
+## 1. Instance Down
+
+**Alert**
+
+```
+VLLMInstanceDownBusinessHours
 ```
 
 ---
 
-### Step 3 — Correlate Metrics
-
-Check:
-
-* concurrency (running / waiting)
-* latency (e2e / ttft / itl)
-* queue time
-* error rate
-* cache efficiency
-
----
-
-### Step 4 — Narrow Down Root Cause
-
-Use the sections below per alert type.
-
----
-
-## Alert Playbooks
-
----
-
-### 1. VLLMServiceDownBusinessHours
-
-**Symptom**
-
-* service unreachable
-
-**Check**
+### Check
 
 ```promql
-up{job="vllm"}
+service:up:raw:instance
 ```
 
-Expected:
+---
 
-* 0
+### Interpretation
+
+* `0` → instance unreachable
+* others still `1` → partial failure
 
 ---
 
-**Possible Causes**
-
-* container stopped
-* network issue
-* port not exposed
-* firewall blocking
-
----
-
-**Actions**
+### Actions
 
 1. Check container:
 
@@ -98,255 +109,413 @@ Expected:
 docker ps
 ```
 
-2. Restart:
+2. Restart instance:
 
 ```bash
 docker restart <vllm-container>
 ```
 
-3. Check metrics endpoint:
+3. Verify endpoint:
 
 ```bash
-curl http://<vllm-host>:8000/metrics
+curl http://<host>:8000/metrics
 ```
 
 ---
 
-### 2. VLLMChatErrorRateHigh
+### If Multiple Instances Down
 
-**Symptom**
-
-* high 4xx/5xx responses
+Escalate as **global issue**.
 
 ---
 
-**Check**
+## 2. All Instances Down
+
+**Alert**
+
+```
+VLLMAllInstancesDownBusinessHours
+```
+
+---
+
+### Check
 
 ```promql
-http:chat_completions:error_rate5m
+service:up:raw:global
+```
+
+---
+
+### Possible Causes
+
+* network outage
+* Prometheus cannot reach all targets
+* global infrastructure issue
+
+---
+
+### Actions
+
+* verify network connectivity
+* check firewall / routing
+* verify Prometheus target status
+
+---
+
+## 3. High Error Rate
+
+### Instance
+
+```
+VLLMChatErrorRateHighInstance
+```
+
+### Global
+
+```
+VLLMChatErrorRateHighGlobal
+```
+
+---
+
+### Check
+
+```promql
+http:chat_completions:error_rate5m:instance
 ```
 
 ```promql
-http:chat_completions:requests:rate5m
+http:chat_completions:error_rate5m:global
 ```
 
 ---
 
-**Possible Causes**
+### Diagnosis
 
-* invalid client requests (4xx)
-* backend failures (5xx)
-* overload
-
----
-
-**Actions**
-
-1. Identify status codes (Grafana panel)
-2. Check if latency also increased
-3. If overload:
-
-   * reduce traffic
-   * scale GPU / instances (future Phase 4)
+| Pattern              | Meaning           |
+| -------------------- | ----------------- |
+| single instance high | node issue        |
+| global high          | system-wide issue |
 
 ---
 
-### 3. VLLME2ELatencyP95High
+### Actions
 
-**Symptom**
-
-* slow responses
+* inspect request patterns
+* check latency correlation
+* validate client inputs
+* reduce load if needed
 
 ---
 
-**Check**
+## 4. High Latency
+
+### Instance
+
+```
+VLLME2ELatencyP95HighInstance
+```
+
+### Global
+
+```
+VLLME2ELatencyP95HighGlobal
+```
+
+---
+
+### Check
 
 ```promql
-latency:e2e:p95
-latency:ttft:p95
-latency:itl:p95
+latency:e2e:p95:instance
+latency:ttft:p95:instance
+latency:itl:p95:instance
 ```
 
 ---
 
-**Diagnosis**
+### Diagnosis
 
-| Pattern | Meaning              |
-| ------- | -------------------- |
-| TTFT ↑  | prompt/prefill issue |
-| ITL ↑   | decode slowdown      |
-| both ↑  | overall system load  |
+| Metric  | Meaning                 |
+| ------- | ----------------------- |
+| TTFT ↑  | prompt processing issue |
+| ITL ↑   | decode slowdown         |
+| queue ↑ | overload                |
 
 ---
 
-**Actions**
+### Actions
 
 1. Check queue:
 
 ```promql
-latency:queue_time:p95
+latency:queue_time:p95:instance
 ```
 
-2. Check concurrency:
+2. Check backlog:
 
 ```promql
-runtime:requests_waiting
+runtime:requests_waiting:instance
 ```
 
-3. If queue high:
+3. If overloaded:
 
-   * system overloaded
-   * reduce traffic or scale
-
----
-
-### 4. VLLMQueueTimeP95High / VLLMRequestsWaitingHigh
-
-**Symptom**
-
-* requests waiting
+* reduce traffic
+* scale instances
 
 ---
 
-**Check**
+## 5. Queue / Backlog Issues
+
+### Alerts
+
+* `VLLMQueueTimeP95HighInstance`
+* `VLLMRequestsWaitingHighInstance`
+
+---
+
+### Check
 
 ```promql
-runtime:requests_waiting
-latency:queue_time:p95
+runtime:requests_waiting:instance
 ```
 
 ---
 
-**Possible Causes**
+### Interpretation
 
-* traffic spike
-* insufficient GPU capacity
-* long prompts
+* high waiting → system saturated
 
 ---
 
-**Actions**
+### Actions
 
 * reduce concurrent load
-* analyze prompt sizes
-* scale resources (Phase 4)
+* scale horizontally
+* inspect prompt size
 
 ---
 
-### 5. VLLMPrefixCacheHitRateLow
+## 6. Traffic Drop
 
-**Symptom**
+### Instance
 
-* low cache efficiency
+```
+VLLMInstanceTrafficDropBusinessHours
+```
 
----
+### Global
 
-**Check**
-
-```promql
-runtime:prefix_cache_hit_rate5m
+```
+VLLMGlobalTrafficDropBusinessHours
 ```
 
 ---
 
-**Possible Causes**
-
-* prompts not reusable
-* cache eviction too aggressive
-
----
-
-**Actions**
-
-* investigate workload pattern
-* not urgent (info level)
-
----
-
-### 6. VLLMTrafficDropBusinessHours
-
-**Symptom**
-
-* service up but no traffic
-
----
-
-**Check**
+### Check
 
 ```promql
-http:chat_completions:requests:rate5m
+http:chat_completions:requests:rate5m:instance
 ```
 
 ---
 
-**Possible Causes**
+### Diagnosis
 
-* upstream service down
-* routing issue
-* client stopped sending requests
+| Pattern              | Meaning           |
+| -------------------- | ----------------- |
+| single instance drop | routing imbalance |
+| global drop          | upstream issue    |
 
 ---
 
-**Actions**
+### Actions
 
-* check upstream systems
-* verify API gateway / routing
+* verify upstream services
+* check API gateway / routing
 * confirm clients are active
 
 ---
 
-## Useful PromQL Queries
+## 7. Cache Efficiency Low
 
-### Availability
+### Alerts
+
+* `VLLMPrefixCacheHitRateLowInstance`
+* `VLLMPrefixCacheHitRateLowGlobal`
+
+---
+
+### Check
 
 ```promql
-up{job="vllm"}
-service:up:raw
+runtime:prefix_cache_hit_rate5m:instance
 ```
+
+---
+
+### Interpretation
+
+* low hit rate → cache not effective
+
+---
+
+### Actions
+
+* analyze workload patterns
+* not critical (info-level)
+
+---
+
+# Debugging Patterns (Important)
+
+---
+
+## Pattern 1 — Single Instance Degradation
+
+Symptoms:
+
+* one instance slow
+* others normal
+
+Action:
+
+* isolate via `instance_name`
+* consider restarting node
+
+---
+
+## Pattern 2 — Partial Capacity Loss
+
+Symptoms:
+
+* one instance down
+* others overloaded
+
+Action:
+
+* restore failed instance quickly
+
+---
+
+## Pattern 3 — Global Saturation
+
+Symptoms:
+
+* all instances high latency
+* queue builds everywhere
+
+Action:
+
+* scale horizontally
+* reduce load
+
+---
+
+## Pattern 4 — Upstream Failure
+
+Symptoms:
+
+* traffic drops to zero
+* service still up
+
+Action:
+
+* check upstream systems
+
+---
+
+# Useful Queries
+
+---
+
+### Instance Health
+
+```promql
+service:up:raw:instance
+```
+
+---
+
+### Active Instances
+
+```promql
+count(service:up:raw:instance)
+```
+
+---
 
 ### Traffic
 
 ```promql
-http:chat_completions:requests:rate5m
+http:chat_completions:requests:rate5m:instance
 ```
+
+---
 
 ### Errors
 
 ```promql
-http:chat_completions:error_rate5m
+http:chat_completions:error_rate5m:instance
 ```
+
+---
 
 ### Latency
 
 ```promql
-latency:e2e:p95
-latency:queue_time:p95
+latency:e2e:p95:instance
 ```
 
-### Runtime
+---
+
+### Queue
 
 ```promql
-runtime:requests_running
-runtime:requests_waiting
+runtime:requests_waiting:instance
 ```
 
 ---
 
-## Notes
-
-* Alerts are evaluated every 30s
-* Most alerts use a `for` window (5–30 minutes)
-* Short spikes may not trigger alerts
-* System is designed to avoid weekend false positives
+# Operational Guidelines
 
 ---
 
-## Summary
+## When Adding New Instances
 
-This runbook provides:
+* verify labels are correct
+* ensure instance appears in dashboard
+* confirm metrics ingestion
 
-* clear debugging steps
-* mapping from alert → metrics → action
-* fast triage for common failure modes
+---
+
+## When Scaling
+
+* monitor Prometheus memory
+* avoid cardinality explosion
+* use aggregation metrics
+
+---
+
+## Alert Tuning
+
+* adjust thresholds based on real usage
+* avoid over-sensitive alerts
+* prefer stability over sensitivity
+
+---
+
+# Summary
+
+This runbook enables:
+
+* fast incident response
+* clear distinction between instance vs global issues
+* effective debugging in multi-instance environments
+
+It is designed for:
+
+> **production operations of vLLM at scale**
 
 ---

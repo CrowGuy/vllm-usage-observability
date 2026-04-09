@@ -2,233 +2,542 @@ groups:
   - name: vllm_usage_rules
     interval: 30s
     rules:
-      - record: usage:requests:rate5m
+      # ----------------------------
+      # Requests
+      # ----------------------------
+      - record: usage:requests:rate5m:instance
         expr: |
-          sum by (model_name) (
+          sum by (instance_name, model_name, env, region) (
             rate(vllm:request_success_total{finished_reason=~"stop|length"}[5m])
           )
 
-      - record: usage:requests:increase1h
+      - record: usage:requests:rate5m:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            rate(vllm:request_success_total{finished_reason=~"stop|length"}[5m])
+          )
+
+      - record: usage:requests:rate5m:global
+        expr: |
+          sum by (env, region) (
+            rate(vllm:request_success_total{finished_reason=~"stop|length"}[5m])
+          )
+
+      - record: usage:requests:increase1h:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             increase(vllm:request_success_total{finished_reason=~"stop|length"}[1h])
           )
 
-      - record: usage:requests:rolling24h
+      - record: usage:requests:increase1h:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            increase(vllm:request_success_total{finished_reason=~"stop|length"}[1h])
+          )
+
+      - record: usage:requests:increase1h:global
+        expr: |
+          sum by (env, region) (
+            increase(vllm:request_success_total{finished_reason=~"stop|length"}[1h])
+          )
+
+      - record: usage:requests:rolling24h:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             increase(vllm:request_success_total{finished_reason=~"stop|length"}[24h])
           )
 
-      - record: usage:prompt_tokens:rate5m
+      - record: usage:requests:rolling24h:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            increase(vllm:request_success_total{finished_reason=~"stop|length"}[24h])
+          )
+
+      - record: usage:requests:rolling24h:global
+        expr: |
+          sum by (env, region) (
+            increase(vllm:request_success_total{finished_reason=~"stop|length"}[24h])
+          )
+
+      # ----------------------------
+      # Prompt Tokens
+      # ----------------------------
+      - record: usage:prompt_tokens:rate5m:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             rate(vllm:prompt_tokens_total[5m])
           )
 
-      - record: usage:prompt_tokens:increase1h
+      - record: usage:prompt_tokens:rate5m:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            rate(vllm:prompt_tokens_total[5m])
+          )
+
+      - record: usage:prompt_tokens:rate5m:global
+        expr: |
+          sum by (env, region) (
+            rate(vllm:prompt_tokens_total[5m])
+          )
+
+      - record: usage:prompt_tokens:increase1h:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             increase(vllm:prompt_tokens_total[1h])
           )
 
-      - record: usage:prompt_tokens:rolling24h
+      - record: usage:prompt_tokens:increase1h:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            increase(vllm:prompt_tokens_total[1h])
+          )
+
+      - record: usage:prompt_tokens:increase1h:global
+        expr: |
+          sum by (env, region) (
+            increase(vllm:prompt_tokens_total[1h])
+          )
+
+      - record: usage:prompt_tokens:rolling24h:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             increase(vllm:prompt_tokens_total[24h])
           )
 
-      - record: usage:generation_tokens:rate5m
+      - record: usage:prompt_tokens:rolling24h:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            increase(vllm:prompt_tokens_total[24h])
+          )
+
+      - record: usage:prompt_tokens:rolling24h:global
+        expr: |
+          sum by (env, region) (
+            increase(vllm:prompt_tokens_total[24h])
+          )
+
+      # ----------------------------
+      # Generation Tokens
+      # ----------------------------
+      - record: usage:generation_tokens:rate5m:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             rate(vllm:generation_tokens_total[5m])
           )
 
-      - record: usage:generation_tokens:increase1h
+      - record: usage:generation_tokens:rate5m:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            rate(vllm:generation_tokens_total[5m])
+          )
+
+      - record: usage:generation_tokens:rate5m:global
+        expr: |
+          sum by (env, region) (
+            rate(vllm:generation_tokens_total[5m])
+          )
+
+      - record: usage:generation_tokens:increase1h:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             increase(vllm:generation_tokens_total[1h])
           )
 
-      - record: usage:generation_tokens:rolling24h
+      - record: usage:generation_tokens:increase1h:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            increase(vllm:generation_tokens_total[1h])
+          )
+
+      - record: usage:generation_tokens:increase1h:global
+        expr: |
+          sum by (env, region) (
+            increase(vllm:generation_tokens_total[1h])
+          )
+
+      - record: usage:generation_tokens:rolling24h:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             increase(vllm:generation_tokens_total[24h])
           )
 
-      - record: usage:tokens:rate5m
+      - record: usage:generation_tokens:rolling24h:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            increase(vllm:generation_tokens_total[24h])
+          )
+
+      - record: usage:generation_tokens:rolling24h:global
+        expr: |
+          sum by (env, region) (
+            increase(vllm:generation_tokens_total[24h])
+          )
+
+      # ----------------------------
+      # Total Tokens
+      # ----------------------------
+      - record: usage:tokens:rate5m:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             rate(vllm:prompt_tokens_total[5m])
           )
           +
-          sum by (model_name) (
+          sum by (instance_name, model_name, env, region) (
             rate(vllm:generation_tokens_total[5m])
           )
 
-      - record: usage:tokens:increase1h
+      - record: usage:tokens:rate5m:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            rate(vllm:prompt_tokens_total[5m])
+          )
+          +
+          sum by (model_name, env, region) (
+            rate(vllm:generation_tokens_total[5m])
+          )
+
+      - record: usage:tokens:rate5m:global
+        expr: |
+          sum by (env, region) (
+            rate(vllm:prompt_tokens_total[5m])
+          )
+          +
+          sum by (env, region) (
+            rate(vllm:generation_tokens_total[5m])
+          )
+
+      - record: usage:tokens:increase1h:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             increase(vllm:prompt_tokens_total[1h])
           )
           +
-          sum by (model_name) (
+          sum by (instance_name, model_name, env, region) (
             increase(vllm:generation_tokens_total[1h])
           )
 
-      - record: usage:tokens:rolling24h
+      - record: usage:tokens:increase1h:model
         expr: |
-          sum by (model_name) (
+          sum by (model_name, env, region) (
+            increase(vllm:prompt_tokens_total[1h])
+          )
+          +
+          sum by (model_name, env, region) (
+            increase(vllm:generation_tokens_total[1h])
+          )
+
+      - record: usage:tokens:increase1h:global
+        expr: |
+          sum by (env, region) (
+            increase(vllm:prompt_tokens_total[1h])
+          )
+          +
+          sum by (env, region) (
+            increase(vllm:generation_tokens_total[1h])
+          )
+
+      - record: usage:tokens:rolling24h:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             increase(vllm:prompt_tokens_total[24h])
           )
           +
-          sum by (model_name) (
+          sum by (instance_name, model_name, env, region) (
+            increase(vllm:generation_tokens_total[24h])
+          )
+
+      - record: usage:tokens:rolling24h:model
+        expr: |
+          sum by (model_name, env, region) (
+            increase(vllm:prompt_tokens_total[24h])
+          )
+          +
+          sum by (model_name, env, region) (
+            increase(vllm:generation_tokens_total[24h])
+          )
+
+      - record: usage:tokens:rolling24h:global
+        expr: |
+          sum by (env, region) (
+            increase(vllm:prompt_tokens_total[24h])
+          )
+          +
+          sum by (env, region) (
             increase(vllm:generation_tokens_total[24h])
           )
 
   - name: vllm_runtime_rules
     interval: 30s
     rules:
-      - record: runtime:requests_running
+      - record: runtime:requests_running:instance
         expr: |
-          sum by (model_name) (
+          sum by (instance_name, model_name, env, region) (
             vllm:num_requests_running
           )
 
-      - record: runtime:requests_waiting
+      - record: runtime:requests_running:global
         expr: |
-          sum by (model_name) (
+          sum by (env, region) (
+            vllm:num_requests_running
+          )
+
+      - record: runtime:requests_waiting:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             vllm:num_requests_waiting
           )
 
-      - record: runtime:kv_cache_usage_perc
+      - record: runtime:requests_waiting:global
         expr: |
-          max by (model_name) (
+          sum by (env, region) (
+            vllm:num_requests_waiting
+          )
+
+      - record: runtime:kv_cache_usage_perc:instance
+        expr: |
+          max by (instance_name, model_name, env, region) (
             vllm:kv_cache_usage_perc
           )
 
-      - record: runtime:prefix_cache_queries:rate5m
+      - record: runtime:kv_cache_usage_perc:global
         expr: |
-          sum by (model_name) (
+          max by (env, region) (
+            vllm:kv_cache_usage_perc
+          )
+
+      - record: runtime:prefix_cache_queries:rate5m:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
             rate(vllm:prefix_cache_queries_total[5m])
           )
 
-      - record: runtime:prefix_cache_hits:rate5m
+      - record: runtime:prefix_cache_hits:rate5m:instance
         expr: |
-          sum by (model_name) (
+          sum by (instance_name, model_name, env, region) (
             rate(vllm:prefix_cache_hits_total[5m])
           )
 
-      - record: runtime:prefix_cache_hit_rate5m
+      - record: runtime:prefix_cache_hit_rate5m:instance
         expr: |
           (
-            sum by (model_name) (
+            sum by (instance_name, model_name, env, region) (
               rate(vllm:prefix_cache_hits_total[5m])
             )
           )
           /
           clamp_min(
-            sum by (model_name) (
+            sum by (instance_name, model_name, env, region) (
               rate(vllm:prefix_cache_queries_total[5m])
             ),
             1
           )
 
-      - record: runtime:preemptions:increase1h
+      - record: runtime:prefix_cache_hit_rate5m:global
         expr: |
-          sum by (model_name) (
+          (
+            sum by (env, region) (
+              rate(vllm:prefix_cache_hits_total[5m])
+            )
+          )
+          /
+          clamp_min(
+            sum by (env, region) (
+              rate(vllm:prefix_cache_queries_total[5m])
+            ),
+            1
+          )
+
+      - record: runtime:preemptions:increase1h:instance
+        expr: |
+          sum by (instance_name, model_name, env, region) (
+            increase(vllm:num_preemptions_total[1h])
+          )
+
+      - record: runtime:preemptions:increase1h:global
+        expr: |
+          sum by (env, region) (
             increase(vllm:num_preemptions_total[1h])
           )
 
   - name: vllm_latency_rules
     interval: 30s
     rules:
-      - record: latency:ttft:p95
+      - record: latency:ttft:p95:instance
         expr: |
           histogram_quantile(
             0.95,
-            sum by (le, model_name) (
+            sum by (le, instance_name, model_name, env, region) (
               rate(vllm:time_to_first_token_seconds_bucket[5m])
             )
           )
 
-      - record: latency:ttft:p99
+      - record: latency:ttft:p95:global
         expr: |
           histogram_quantile(
-            0.99,
-            sum by (le, model_name) (
+            0.95,
+            sum by (le, env, region) (
               rate(vllm:time_to_first_token_seconds_bucket[5m])
             )
           )
 
-      - record: latency:itl:p95
+      - record: latency:ttft:p99:instance
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, instance_name, model_name, env, region) (
+              rate(vllm:time_to_first_token_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:ttft:p99:global
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, env, region) (
+              rate(vllm:time_to_first_token_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:itl:p95:instance
         expr: |
           histogram_quantile(
             0.95,
-            sum by (le, model_name) (
+            sum by (le, instance_name, model_name, env, region) (
               rate(vllm:inter_token_latency_seconds_bucket[5m])
             )
           )
 
-      - record: latency:itl:p99
+      - record: latency:itl:p95:global
         expr: |
           histogram_quantile(
-            0.99,
-            sum by (le, model_name) (
+            0.95,
+            sum by (le, env, region) (
               rate(vllm:inter_token_latency_seconds_bucket[5m])
             )
           )
 
-      - record: latency:e2e:p95
-        expr: |
-          histogram_quantile(
-            0.95,
-            sum by (le, model_name) (
-              rate(vllm:e2e_request_latency_seconds_bucket[5m])
-            )
-          )
-
-      - record: latency:e2e:p99
+      - record: latency:itl:p99:instance
         expr: |
           histogram_quantile(
             0.99,
-            sum by (le, model_name) (
+            sum by (le, instance_name, model_name, env, region) (
+              rate(vllm:inter_token_latency_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:itl:p99:global
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, env, region) (
+              rate(vllm:inter_token_latency_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:e2e:p95:instance
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, instance_name, model_name, env, region) (
               rate(vllm:e2e_request_latency_seconds_bucket[5m])
             )
           )
 
-      - record: latency:queue_time:p95
+      - record: latency:e2e:p95:global
         expr: |
           histogram_quantile(
             0.95,
-            sum by (le, model_name) (
+            sum by (le, env, region) (
+              rate(vllm:e2e_request_latency_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:e2e:p99:instance
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, instance_name, model_name, env, region) (
+              rate(vllm:e2e_request_latency_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:e2e:p99:global
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum by (le, env, region) (
+              rate(vllm:e2e_request_latency_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:queue_time:p95:instance
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, instance_name, model_name, env, region) (
               rate(vllm:request_queue_time_seconds_bucket[5m])
             )
           )
 
-      - record: latency:inference_time:p95
+      - record: latency:queue_time:p95:global
         expr: |
           histogram_quantile(
             0.95,
-            sum by (le, model_name) (
+            sum by (le, env, region) (
+              rate(vllm:request_queue_time_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:inference_time:p95:instance
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, instance_name, model_name, env, region) (
               rate(vllm:request_inference_time_seconds_bucket[5m])
             )
           )
 
-      - record: latency:prefill_time:p95
+      - record: latency:inference_time:p95:global
         expr: |
           histogram_quantile(
             0.95,
-            sum by (le, model_name) (
+            sum by (le, env, region) (
+              rate(vllm:request_inference_time_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:prefill_time:p95:instance
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, instance_name, model_name, env, region) (
               rate(vllm:request_prefill_time_seconds_bucket[5m])
             )
           )
 
-      - record: latency:decode_time:p95
+      - record: latency:prefill_time:p95:global
         expr: |
           histogram_quantile(
             0.95,
-            sum by (le, model_name) (
+            sum by (le, env, region) (
+              rate(vllm:request_prefill_time_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:decode_time:p95:instance
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, instance_name, model_name, env, region) (
+              rate(vllm:request_decode_time_seconds_bucket[5m])
+            )
+          )
+
+      - record: latency:decode_time:p95:global
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, env, region) (
               rate(vllm:request_decode_time_seconds_bucket[5m])
             )
           )
@@ -236,9 +545,15 @@ groups:
   - name: vllm_service_rules
     interval: 30s
     rules:
-      - record: service:up:raw
+      - record: service:up:raw:instance
         expr: |
-          max by (job) (
+          max by (instance_name, env, region, job) (
+            up{job="vllm"}
+          )
+
+      - record: service:up:raw:global
+        expr: |
+          max by (env, region, job) (
             up{job="vllm"}
           )
 
@@ -250,9 +565,13 @@ groups:
             (day_of_week(vector(time() + 8 * 3600)) <= 5)
           )
 
-      - record: service:availability:business_hours
+      - record: service:expected_up:business_hours
         expr: |
-          max by (job) (
+          service:business_day:asia_taipei
+
+      - record: service:availability:business_hours:instance
+        expr: |
+          max by (instance_name, env, region, job) (
             up{job="vllm"}
           )
           *
@@ -260,45 +579,87 @@ groups:
           group_left()
           service:business_day:asia_taipei
 
-      - record: service:expected_up:business_hours
+      - record: service:availability:business_hours:global
         expr: |
+          max by (env, region, job) (
+            up{job="vllm"}
+          )
+          *
+          on()
+          group_left()
           service:business_day:asia_taipei
 
   - name: vllm_http_rules
     interval: 30s
     rules:
-      - record: http:requests:rate5m
+      - record: http:requests:rate5m:instance
         expr: |
-          sum by (handler, method, status) (
+          sum by (instance_name, env, region, handler, method, status) (
             rate(http_requests_total[5m])
           )
 
-      - record: http:chat_completions:requests:rate5m
+      - record: http:requests:rate5m:global
         expr: |
-          sum by (status) (
+          sum by (env, region, handler, method, status) (
+            rate(http_requests_total[5m])
+          )
+
+      - record: http:chat_completions:requests:rate5m:instance
+        expr: |
+          sum by (instance_name, env, region, status) (
             rate(http_requests_total{handler="/v1/chat/completions",method="POST"}[5m])
           )
 
-      - record: http:chat_completions:error_rate5m
+      - record: http:chat_completions:requests:rate5m:global
+        expr: |
+          sum by (env, region, status) (
+            rate(http_requests_total{handler="/v1/chat/completions",method="POST"}[5m])
+          )
+
+      - record: http:chat_completions:error_rate5m:instance
         expr: |
           (
-            sum(
+            sum by (instance_name, env, region) (
               rate(http_requests_total{handler="/v1/chat/completions",method="POST",status=~"4xx|5xx"}[5m])
             )
           )
           /
           clamp_min(
-            sum(
+            sum by (instance_name, env, region) (
               rate(http_requests_total{handler="/v1/chat/completions",method="POST"}[5m])
             ),
             1
           )
 
-      - record: http:chat_completions:latency:p95
+      - record: http:chat_completions:error_rate5m:global
+        expr: |
+          (
+            sum by (env, region) (
+              rate(http_requests_total{handler="/v1/chat/completions",method="POST",status=~"4xx|5xx"}[5m])
+            )
+          )
+          /
+          clamp_min(
+            sum by (env, region) (
+              rate(http_requests_total{handler="/v1/chat/completions",method="POST"}[5m])
+            ),
+            1
+          )
+
+      - record: http:chat_completions:latency:p95:instance
         expr: |
           histogram_quantile(
             0.95,
-            sum by (le) (
+            sum by (le, instance_name, env, region) (
+              rate(http_request_duration_highr_seconds_bucket[5m])
+            )
+          )
+
+      - record: http:chat_completions:latency:p95:global
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, env, region) (
               rate(http_request_duration_highr_seconds_bucket[5m])
             )
           )

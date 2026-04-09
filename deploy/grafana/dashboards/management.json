@@ -2,14 +2,81 @@
   "id": null,
   "uid": "vllm-management",
   "title": "VLLM Usage - Management",
-  "tags": ["vllm", "usage", "management"],
+  "tags": ["vllm", "usage", "management", "multi-instance"],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-7d",
     "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "env",
+        "type": "query",
+        "label": "Environment",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(service:up:raw:global, env)",
+        "query": {
+          "query": "label_values(service:up:raw:global, env)",
+          "refId": "EnvVar"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "region",
+        "type": "query",
+        "label": "Region",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(service:up:raw:global{env=~\"$env\"}, region)",
+        "query": {
+          "query": "label_values(service:up:raw:global{env=~\"$env\"}, region)",
+          "refId": "RegionVar"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "model_name",
+        "type": "query",
+        "label": "Model",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "definition": "label_values(usage:tokens:rolling24h:model{env=~\"$env\",region=~\"$region\"}, model_name)",
+        "query": {
+          "query": "label_values(usage:tokens:rolling24h:model{env=~\"$env\",region=~\"$region\"}, model_name)",
+          "refId": "ModelVar"
+        },
+        "refresh": 2,
+        "includeAll": true,
+        "multi": false,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "allValue": ".*"
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
   },
   "panels": [
     {
@@ -19,14 +86,19 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(usage:requests:rolling24h)",
+          "expr": "sum(usage:requests:rolling24h:model{env=~\"$env\",region=~\"$region\",model_name=~\"$model_name\"})",
           "refId": "A"
         }
       ],
       "options": {
-        "reduceOptions": {
-          "calcs": ["lastNotNull"]
-        }
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0, "min": 0 },
+        "overrides": []
       }
     },
     {
@@ -36,10 +108,16 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(usage:prompt_tokens:rolling24h)",
+          "expr": "sum(usage:prompt_tokens:rolling24h:model{env=~\"$env\",region=~\"$region\",model_name=~\"$model_name\"})",
           "refId": "A"
         }
-      ]
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      }
     },
     {
       "type": "stat",
@@ -48,10 +126,16 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(usage:generation_tokens:rolling24h)",
+          "expr": "sum(usage:generation_tokens:rolling24h:model{env=~\"$env\",region=~\"$region\",model_name=~\"$model_name\"})",
           "refId": "A"
         }
-      ]
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      }
     },
     {
       "type": "stat",
@@ -60,10 +144,16 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(usage:tokens:rolling24h)",
+          "expr": "sum(usage:tokens:rolling24h:model{env=~\"$env\",region=~\"$region\",model_name=~\"$model_name\"})",
           "refId": "A"
         }
-      ]
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      }
     },
     {
       "type": "timeseries",
@@ -72,11 +162,19 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(usage:requests:increase1h)",
+          "expr": "sum(usage:requests:increase1h:model{env=~\"$env\",region=~\"$region\",model_name=~\"$model_name\"})",
           "legendFormat": "requests/hour",
           "refId": "A"
         }
-      ]
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "min": 0 },
+        "overrides": []
+      }
     },
     {
       "type": "timeseries",
@@ -85,34 +183,131 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(usage:tokens:increase1h)",
+          "expr": "sum(usage:tokens:increase1h:model{env=~\"$env\",region=~\"$region\",model_name=~\"$model_name\"})",
           "legendFormat": "tokens/hour",
           "refId": "A"
         }
-      ]
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "min": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Usage by Model (24h)",
+      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "usage:tokens:rolling24h:model{env=~\"$env\",region=~\"$region\",model_name=~\"$model_name\"}",
+          "legendFormat": "{{model_name}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "min": 0 },
+        "overrides": []
+      }
     },
     {
       "type": "timeseries",
       "title": "Service Availability",
-      "gridPos": { "x": 0, "y": 10, "w": 24, "h": 4 },
+      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 6 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "service:up:raw",
+          "expr": "service:up:raw:global{env=~\"$env\",region=~\"$region\"}",
           "legendFormat": "raw_up",
           "refId": "A"
         },
         {
-          "expr": "service:availability:business_hours",
+          "expr": "service:availability:business_hours:global{env=~\"$env\",region=~\"$region\"}",
           "legendFormat": "business_hours_up",
           "refId": "B"
         }
       ],
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
       "fieldConfig": {
-        "defaults": {
-          "min": 0,
-          "max": 1
+        "defaults": { "min": 0, "max": 1 },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Active Instances",
+      "gridPos": { "x": 0, "y": 16, "w": 8, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(service:up:raw:instance{env=~\"$env\",region=~\"$region\"})",
+          "refId": "A"
         }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "none", "decimals": 0, "min": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Global Error Rate (5m)",
+      "gridPos": { "x": 8, "y": 16, "w": 8, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "avg(http:chat_completions:error_rate5m:global{env=~\"$env\",region=~\"$region\"})",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "max": 1 },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Global E2E Latency p95",
+      "gridPos": { "x": 16, "y": 16, "w": 8, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "avg(latency:e2e:p95:global{env=~\"$env\",region=~\"$region\"})",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "min": 0 },
+        "overrides": []
       }
     }
   ]

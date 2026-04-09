@@ -2,104 +2,246 @@ groups:
   - name: vllm_alerts
     interval: 30s
     rules:
-      - alert: VLLMServiceDownBusinessHours
+      # -------------------------------------------------
+      # Availability
+      # -------------------------------------------------
+      - alert: VLLMInstanceDownBusinessHours
         expr: |
           (
             service:expected_up:business_hours == 1
           )
           and
           (
-            max(service:up:raw) == 0
+            service:up:raw:instance == 0
           )
         for: 5m
         labels:
           severity: critical
           category: availability
+          scope: instance
           service: vllm
         annotations:
-          summary: "vLLM service is down during business hours"
-          description: "Prometheus cannot scrape the vLLM target for more than 5 minutes during expected business days."
+          summary: "vLLM instance is down during business hours"
+          description: "Instance {{ $labels.instance_name }} is unreachable for more than 5 minutes during expected business days."
 
-      - alert: VLLMChatErrorRateHigh
-        expr: |
-          http:chat_completions:error_rate5m > 0.05
-        for: 10m
-        labels:
-          severity: warning
-          category: api
-          service: vllm
-        annotations:
-          summary: "High chat completion error rate"
-          description: "HTTP chat completion error rate is above 5% for more than 10 minutes."
-
-      - alert: VLLME2ELatencyP95High
-        expr: |
-          avg(latency:e2e:p95) > 20
-        for: 10m
-        labels:
-          severity: warning
-          category: latency
-          service: vllm
-        annotations:
-          summary: "High end-to-end latency"
-          description: "p95 end-to-end latency is above 20 seconds for more than 10 minutes."
-
-      - alert: VLLMQueueTimeP95High
-        expr: |
-          avg(latency:queue_time:p95) > 1
-        for: 10m
-        labels:
-          severity: warning
-          category: queue
-          service: vllm
-        annotations:
-          summary: "High queue time"
-          description: "p95 request queue time is above 1 second for more than 10 minutes, indicating backlog or overload."
-
-      - alert: VLLMRequestsWaitingHigh
-        expr: |
-          sum(runtime:requests_waiting) > 5
-        for: 10m
-        labels:
-          severity: warning
-          category: runtime
-          service: vllm
-        annotations:
-          summary: "Too many waiting requests"
-          description: "The number of waiting requests is above 5 for more than 10 minutes."
-
-      - alert: VLLMPrefixCacheHitRateLow
-        expr: |
-          avg(runtime:prefix_cache_hit_rate5m) < 0.30
-          and
-          sum(http:chat_completions:requests:rate5m) > 0.05
-        for: 15m
-        labels:
-          severity: info
-          category: cache
-          service: vllm
-        annotations:
-          summary: "Low prefix cache hit rate"
-          description: "Prefix cache hit rate is below 30% while the service is receiving traffic."
-
-      - alert: VLLMTrafficDropBusinessHours
+      - alert: VLLMAllInstancesDownBusinessHours
         expr: |
           (
             service:expected_up:business_hours == 1
           )
           and
           (
-            sum(http:chat_completions:requests:rate5m) < 0.001
+            max(service:up:raw:global) == 0
+          )
+        for: 5m
+        labels:
+          severity: critical
+          category: availability
+          scope: global
+          service: vllm
+        annotations:
+          summary: "All vLLM instances are down during business hours"
+          description: "No vLLM instance is reachable for more than 5 minutes during expected business days."
+
+      # -------------------------------------------------
+      # Error Rate
+      # -------------------------------------------------
+      - alert: VLLMChatErrorRateHighInstance
+        expr: |
+          http:chat_completions:error_rate5m:instance > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          category: api
+          scope: instance
+          service: vllm
+        annotations:
+          summary: "High chat completion error rate on instance"
+          description: "Instance {{ $labels.instance_name }} has chat completion error rate above 5% for more than 10 minutes."
+
+      - alert: VLLMChatErrorRateHighGlobal
+        expr: |
+          http:chat_completions:error_rate5m:global > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          category: api
+          scope: global
+          service: vllm
+        annotations:
+          summary: "High global chat completion error rate"
+          description: "Global chat completion error rate is above 5% for more than 10 minutes."
+
+      # -------------------------------------------------
+      # Latency
+      # -------------------------------------------------
+      - alert: VLLME2ELatencyP95HighInstance
+        expr: |
+          latency:e2e:p95:instance > 20
+        for: 10m
+        labels:
+          severity: warning
+          category: latency
+          scope: instance
+          service: vllm
+        annotations:
+          summary: "High end-to-end latency on instance"
+          description: "Instance {{ $labels.instance_name }} has p95 end-to-end latency above 20 seconds for more than 10 minutes."
+
+      - alert: VLLME2ELatencyP95HighGlobal
+        expr: |
+          latency:e2e:p95:global > 20
+        for: 10m
+        labels:
+          severity: warning
+          category: latency
+          scope: global
+          service: vllm
+        annotations:
+          summary: "High global end-to-end latency"
+          description: "Global p95 end-to-end latency is above 20 seconds for more than 10 minutes."
+
+      - alert: VLLMQueueTimeP95HighInstance
+        expr: |
+          latency:queue_time:p95:instance > 1
+        for: 10m
+        labels:
+          severity: warning
+          category: queue
+          scope: instance
+          service: vllm
+        annotations:
+          summary: "High queue time on instance"
+          description: "Instance {{ $labels.instance_name }} has p95 queue time above 1 second for more than 10 minutes."
+
+      - alert: VLLMQueueTimeP95HighGlobal
+        expr: |
+          latency:queue_time:p95:global > 1
+        for: 10m
+        labels:
+          severity: warning
+          category: queue
+          scope: global
+          service: vllm
+        annotations:
+          summary: "High global queue time"
+          description: "Global p95 queue time is above 1 second for more than 10 minutes."
+
+      # -------------------------------------------------
+      # Runtime / Backlog
+      # -------------------------------------------------
+      - alert: VLLMRequestsWaitingHighInstance
+        expr: |
+          runtime:requests_waiting:instance > 5
+        for: 10m
+        labels:
+          severity: warning
+          category: runtime
+          scope: instance
+          service: vllm
+        annotations:
+          summary: "Too many waiting requests on instance"
+          description: "Instance {{ $labels.instance_name }} has more than 5 waiting requests for more than 10 minutes."
+
+      - alert: VLLMRequestsWaitingHighGlobal
+        expr: |
+          runtime:requests_waiting:global > 10
+        for: 10m
+        labels:
+          severity: warning
+          category: runtime
+          scope: global
+          service: vllm
+        annotations:
+          summary: "Too many waiting requests globally"
+          description: "Global waiting requests count is above 10 for more than 10 minutes."
+
+      # -------------------------------------------------
+      # Cache
+      # -------------------------------------------------
+      - alert: VLLMPrefixCacheHitRateLowInstance
+        expr: |
+          (
+            runtime:prefix_cache_hit_rate5m:instance < 0.30
           )
           and
           (
-            max(service:up:raw) == 1
+            sum by (instance_name, env, region) (http:chat_completions:requests:rate5m:instance) > 0.05
+          )
+        for: 15m
+        labels:
+          severity: info
+          category: cache
+          scope: instance
+          service: vllm
+        annotations:
+          summary: "Low prefix cache hit rate on instance"
+          description: "Instance {{ $labels.instance_name }} has prefix cache hit rate below 30% while receiving traffic."
+
+      - alert: VLLMPrefixCacheHitRateLowGlobal
+        expr: |
+          (
+            runtime:prefix_cache_hit_rate5m:global < 0.30
+          )
+          and
+          (
+            sum by (env, region) (http:chat_completions:requests:rate5m:global) > 0.10
+          )
+        for: 15m
+        labels:
+          severity: info
+          category: cache
+          scope: global
+          service: vllm
+        annotations:
+          summary: "Low global prefix cache hit rate"
+          description: "Global prefix cache hit rate is below 30% while the service is receiving traffic."
+
+      # -------------------------------------------------
+      # Traffic Anomaly
+      # -------------------------------------------------
+      - alert: VLLMInstanceTrafficDropBusinessHours
+        expr: |
+          (
+            service:expected_up:business_hours == 1
+          )
+          and
+          (
+            sum by (instance_name, env, region) (http:chat_completions:requests:rate5m:instance) < 0.001
+          )
+          and
+          (
+            service:up:raw:instance == 1
           )
         for: 30m
         labels:
           severity: info
           category: traffic
+          scope: instance
           service: vllm
         annotations:
-          summary: "Traffic dropped during business hours"
-          description: "Chat completion request rate is near zero for more than 30 minutes during expected business days while the service is up."
+          summary: "Traffic dropped on instance during business hours"
+          description: "Instance {{ $labels.instance_name }} is up but receiving almost no traffic for more than 30 minutes during expected business days."
+
+      - alert: VLLMGlobalTrafficDropBusinessHours
+        expr: |
+          (
+            service:expected_up:business_hours == 1
+          )
+          and
+          (
+            sum by (env, region) (http:chat_completions:requests:rate5m:global) < 0.001
+          )
+          and
+          (
+            max(service:up:raw:global) == 1
+          )
+        for: 30m
+        labels:
+          severity: info
+          category: traffic
+          scope: global
+          service: vllm
+        annotations:
+          summary: "Global traffic dropped during business hours"
+          description: "The vLLM service is up but receiving almost no traffic for more than 30 minutes during expected business days."
