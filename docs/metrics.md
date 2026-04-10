@@ -1,73 +1,48 @@
-# Metrics Definition — Validated Mapping (vLLM)
+# Metrics Definition
 
-## 1. Validation Status
+## Purpose
 
-The `/metrics` endpoint has been validated against a live vLLM service instance.
+This document describes:
 
-The required MVP usage metrics are present and usable for production observability.
+- which raw metrics are relied on
+- how they map into canonical metrics
+- which semantic rules matter for correctness
 
----
+The key distinction is:
 
-## 2. Validated Raw Metrics
+- raw metrics are implementation inputs
+- canonical metrics are the supported observability interface
 
-### 2.1 Usage Metrics
+## Validated Raw Inputs
 
-#### Successful Requests
+The repository relies on validated raw metrics from a live vLLM service.
 
-```text
-vllm:request_success_total{finished_reason="stop"| "length"| "abort"}
-```
-
-Notes:
-
-* This counter includes a `finished_reason` label
-* `stop` and `length` should be treated as successful completed requests
-* `abort` must be excluded from business usage accounting
-
----
-
-#### Prompt Tokens
+### Usage Inputs
 
 ```text
+vllm:request_success_total
 vllm:prompt_tokens_total
-```
-
-Definition:
-
-* Total prefill/input tokens processed
-
----
-
-#### Generation Tokens
-
-```text
 vllm:generation_tokens_total
 ```
 
-Definition:
+Important detail:
 
-* Total output/generated tokens processed
+- `vllm:request_success_total` includes `finished_reason`
+- only `stop` and `length` are treated as successful business requests
+- `abort` is excluded from usage accounting
 
----
-
-### 2.2 Runtime / Engineering Metrics
-
-#### Queue / Concurrency
+### Runtime Inputs
 
 ```text
 vllm:num_requests_running
 vllm:num_requests_waiting
-```
-
-#### Cache
-
-```text
 vllm:kv_cache_usage_perc
 vllm:prefix_cache_queries_total
 vllm:prefix_cache_hits_total
+vllm:num_preemptions_total
 ```
 
-#### Latency
+### Latency Inputs
 
 ```text
 vllm:time_to_first_token_seconds
@@ -79,9 +54,7 @@ vllm:request_prefill_time_seconds
 vllm:request_decode_time_seconds
 ```
 
----
-
-### 2.3 HTTP Layer Metrics
+### HTTP Inputs
 
 ```text
 http_requests_total
@@ -89,101 +62,107 @@ http_request_duration_seconds
 http_request_duration_highr_seconds
 ```
 
-Use cases:
+## Canonical Metric Families
 
-* API error-rate tracking
-* handler-level traffic validation
-* HTTP-level latency comparison with vLLM internal latency
+### Usage
 
----
+Canonical outputs include:
 
-## 3. Canonical Metric Mapping
+- `usage:requests:*`
+- `usage:prompt_tokens:*`
+- `usage:generation_tokens:*`
+- `usage:tokens:*`
 
-| Canonical Metric                | Raw Metric                         | Rule                              |
-| ------------------------------- | ---------------------------------- | --------------------------------- |
-| `usage:requests:daily`          | `vllm:request_success_total`       | exclude `finished_reason="abort"` |
-| `usage:prompt_tokens:daily`     | `vllm:prompt_tokens_total`         | use `increase()`                  |
-| `usage:generation_tokens:daily` | `vllm:generation_tokens_total`     | use `increase()`                  |
-| `usage:tokens:daily`            | prompt + generation                | derived metric                    |
-| `service:up:raw`                | `up{job="vllm"}`                   | from Prometheus scrape status     |
-| `runtime:requests_running`      | `vllm:num_requests_running`        | gauge                             |
-| `runtime:requests_waiting`      | `vllm:num_requests_waiting`        | gauge                             |
-| `runtime:kv_cache_usage`        | `vllm:kv_cache_usage_perc`         | gauge                             |
-| `runtime:prefix_cache_hit_rate` | prefix hits / prefix queries       | derived ratio                     |
-| `latency:ttft`                  | `vllm:time_to_first_token_seconds` | histogram-based percentile        |
-| `latency:itl`                   | `vllm:inter_token_latency_seconds` | histogram-based percentile        |
-| `latency:e2e`                   | `vllm:e2e_request_latency_seconds` | histogram-based percentile        |
+Semantic rules:
 
----
+- use `increase()` and `rate()` over counters
+- exclude `finished_reason="abort"` from request accounting
 
-## 4. Business Semantics
+### Runtime
 
-### Requests / Day
+Canonical outputs include:
 
-Definition:
+- `runtime:requests_running:*`
+- `runtime:requests_waiting:*`
+- `runtime:kv_cache_usage_perc:*`
+- `runtime:prefix_cache_queries:rate5m:instance`
+- `runtime:prefix_cache_hits:rate5m:instance`
+- `runtime:prefix_cache_hit_rate5m:*`
+- `runtime:preemptions:increase1h:*`
 
-* Sum of successfully processed requests excluding aborted requests
+### Latency
 
-Recommended logic:
+Canonical outputs include percentile metrics built from histogram buckets:
 
-```text
-sum(increase(vllm:request_success_total{finished_reason=~"stop|length"}[1d]))
-```
+- `latency:ttft:*`
+- `latency:itl:*`
+- `latency:e2e:*`
+- `latency:queue_time:*`
+- `latency:inference_time:*`
+- `latency:prefill_time:*`
+- `latency:decode_time:*`
 
----
+### Service
 
-### Prompt Tokens / Day
+Canonical service outputs include:
 
-```text
-sum(increase(vllm:prompt_tokens_total[1d]))
-```
+- `service:up:raw:*`
+- `service:business_day:asia_taipei`
+- `service:expected_up:business_hours`
+- `service:availability:business_hours:*`
 
----
+### HTTP
 
-### Generation Tokens / Day
+Canonical HTTP outputs include:
 
-```text
-sum(increase(vllm:generation_tokens_total[1d]))
-```
+- `http:requests:rate5m:*`
+- `http:chat_completions:requests:rate5m:*`
+- `http:chat_completions:error_rate5m:*`
+- `http:chat_completions:latency:p95:*`
 
----
+## Aggregation Semantics
 
-### Total Tokens / Day
+Where provided, canonical outputs follow these suffixes:
 
-```text
-sum(increase(vllm:prompt_tokens_total[1d]))
-+
-sum(increase(vllm:generation_tokens_total[1d]))
-```
+- `:instance` for diagnosis
+- `:model` for model-level usage aggregation
+- `:global` for service-level monitoring
 
----
+This suffix meaning is part of the semantic contract.
 
-## 5. Important Observations
+## Correctness Rules
 
-### 5.1 Counter Reset Safety
+### Counter Reset Safety
 
-The usage metrics are counters and must always be queried via `increase()`.
+Usage metrics must remain correct across restarts. For that reason:
 
-### 5.2 `request_success_total` Needs Label Filtering
+- raw counters should not be graphed directly for business accounting
+- canonical usage queries use `increase()` and `rate()`
 
-This metric includes multiple `finished_reason` values.
-Business dashboards must exclude `abort`.
+### Request Accounting Filter
 
-### 5.3 HTTP Metrics and vLLM Metrics Are Not Identical
+`vllm:request_success_total` is not directly equivalent to business request count unless `abort` is excluded.
 
-`http_requests_total` includes API-layer requests and errors.
-`vllm:request_success_total` reflects successfully processed model requests.
-They must not be treated as interchangeable.
+### HTTP and vLLM Metrics Are Different Layers
 
-### 5.4 Deprecated Metrics Exist
+These are not interchangeable:
 
-The endpoint still exposes deprecated metrics such as:
+- `http_requests_total` reflects API-layer traffic and failures
+- `vllm:request_success_total` reflects successfully processed model requests
 
-* `vllm:gpu_cache_usage_perc`
-* `vllm:gpu_prefix_cache_queries_total`
-* `vllm:gpu_prefix_cache_hits_total`
-* `vllm:time_per_output_token_seconds`
+Both are useful, but they answer different questions.
 
-Preferred non-deprecated replacements should be used in new dashboards and rules.
+### Histogram-Based Latency
 
----
+Latency percentiles are computed from histogram buckets through recording rules. Dashboards and alerts should consume canonical latency outputs rather than rebuild quantile logic repeatedly.
+
+## Deprecated Raw Metrics
+
+Deprecated metrics may still appear in `/metrics`, for example:
+
+- `vllm:gpu_cache_usage_perc`
+- `vllm:gpu_prefix_cache_queries_total`
+- `vllm:gpu_prefix_cache_hits_total`
+- `vllm:time_per_output_token_seconds`
+
+They are not the preferred basis for new canonical rules in this repository.

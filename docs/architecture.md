@@ -1,402 +1,161 @@
-# Architecture — VLLM Usage Observability
+# Architecture
 
-## Overview
+## Purpose
 
-This system provides a **multi-instance observability platform** for vLLM services, covering:
+This repository implements a semantic observability architecture for vLLM. Its purpose is to turn raw metrics into stable operational meaning.
 
-* usage tracking
-* performance diagnostics
-* service monitoring
-* alerting
-
-It is designed to scale from a single instance to **multiple vLLM deployments** across environments and regions.
-
----
-
-## High-Level Architecture
+## System Shape
 
 ```text
 Multiple vLLM Instances (/metrics)
         ↓
 Prometheus (scrape + storage)
         ↓
-Recording Rules (semantic layer)
+Canonical Recording Rules
         ↓
-Alerting Rules (evaluation layer)
-        ↓
-Grafana (visualization)
+Alerts + Grafana
 ```
 
----
+The important architectural boundary is between:
 
-## Multi-Instance Architecture
+- raw input metrics
+- canonical semantic metrics
+
+Everything downstream should prefer the canonical layer.
+
+## Components
+
+### vLLM Instances
+
+Each vLLM instance:
+
+- exposes `/metrics`
+- runs independently
+- contributes usage, runtime, latency, cache, and HTTP signals
+
+### Prometheus
+
+Prometheus is responsible for:
+
+- scraping multiple targets
+- attaching stable labels
+- storing time series
+- evaluating recording and alert rules
+
+### Canonical Recording Rules
+
+The recording rules define the semantic contract. They transform raw inputs into reusable metrics across five families:
+
+- `usage:*`
+- `runtime:*`
+- `latency:*`
+- `service:*`
+- `http:*`
+
+This is the core design decision in the repository.
+
+### Alerts
+
+Alerts evaluate canonical metrics only. This keeps alerting logic aligned with the semantic contract rather than raw metric quirks.
+
+### Grafana
+
+Grafana renders two audience-specific views:
+
+- Management dashboard for service and usage overview
+- Engineering dashboard for per-instance diagnosis
+
+## Multi-Instance Model
+
+The architecture is explicitly multi-instance.
 
 ```text
 [vLLM A]   [vLLM B]   [vLLM C]
    ↓           ↓           ↓
         Prometheus
              ↓
-   Recording Rules
+    Canonical Recording Rules
    (instance / model / global)
              ↓
-     Alerts + Grafana
+     Alerts + Dashboards
 ```
 
----
+Correctness depends on stable labels, especially:
 
-## Components
+- `instance_name`
+- `model_name`
+- `env`
+- `region`
 
----
+## Aggregation Layers
 
-### 1. vLLM Instances
+The semantic layer uses three aggregation levels:
 
-Each vLLM instance:
+### Instance
 
-* exposes `/metrics`
-* runs independently (container / machine)
-* serves a specific model
-
-Provides:
-
-* usage counters (requests, tokens)
-* latency histograms (TTFT, ITL, E2E)
-* runtime metrics (queue, concurrency)
-* cache metrics (KV cache, prefix cache)
-* HTTP metrics
-
----
-
-### 2. Prometheus
-
-Responsibilities:
-
-* scrape multiple vLLM targets
-* attach stable labels:
-
-  * `instance_name`
-  * `env`
-  * `region`
-* store time series
-* evaluate rules
-
----
-
-### 3. Labeling Layer
-
-Defined in:
-
-```text
-docs/labeling.md
-```
-
-Key labels:
-
-| Label         | Purpose             |
-| ------------- | ------------------- |
-| instance_name | identify instance   |
-| model_name    | identify model      |
-| env           | environment         |
-| region        | deployment location |
-
-This layer enables:
-
-* aggregation
-* filtering
-* alert scoping
-
----
-
-### 4. Recording Rules (Semantic Layer)
-
-Defined in:
-
-```text
-deploy/prometheus/recording_rules.yml
-```
-
-Transforms raw metrics into canonical metrics with **three aggregation levels**:
-
-#### 1. Instance Level
+Suffix:
 
 ```text
 *:instance
 ```
 
-Used for:
+Purpose:
 
-* debugging
-* per-node visibility
+- debugging
+- local failure isolation
+- per-node latency and backlog analysis
 
----
+### Model
 
-#### 2. Model Level
+Suffix:
 
 ```text
 *:model
 ```
 
-Used for:
+Purpose:
 
-* usage reporting
-* cost analysis
+- usage reporting by model
+- cross-instance aggregation for the same served model
 
----
+### Global
 
-#### 3. Global Level
+Suffix:
 
 ```text
 *:global
 ```
 
-Used for:
-
-* service-wide monitoring
-* management dashboard
-
----
-
-### 5. Alerting Rules (Evaluation Layer)
-
-Defined in:
-
-```text
-deploy/prometheus/alerts.yml
-```
-
-Alerts are categorized into:
-
-* instance-level alerts
-* global alerts
-
-Examples:
-
-| Scope    | Example                         |
-| -------- | ------------------------------- |
-| instance | instance down, latency high     |
-| global   | traffic drop, global error rate |
-
----
-
-### 6. Business-Hours Awareness
-
-The system encodes expected service availability:
-
-```promql
-service:expected_up:business_hours
-```
-
-Used to:
-
-* suppress alerts during weekends
-* avoid false positives
-
----
-
-### 7. Grafana
-
-Provides two types of dashboards:
-
----
-
-#### Engineering Dashboard
-
 Purpose:
 
-* debugging
-* per-instance visibility
+- service-level health
+- management summaries
+- global alerting
 
-Features:
+## Business-Hours-Aware Availability
 
-* instance filtering
-* latency breakdown
-* queue analysis
+Availability is modeled as a combination of:
 
----
+- scrape reachability
+- expected operating schedule
 
-#### Management Dashboard
-
-Purpose:
-
-* business and usage overview
-
-Features:
-
-* usage metrics (requests, tokens)
-* model-level aggregation
-* service availability
-
----
+The implemented schedule is a business-day rule in Asia/Taipei time. This avoids interpreting planned weekend shutdowns as outages.
 
 ## Data Flow
 
-### Step 1 — Metrics Emission
+1. vLLM emits raw Prometheus metrics.
+2. Prometheus scrapes targets and attaches stable labels.
+3. Recording rules derive canonical semantic metrics.
+4. Alerts and dashboards consume canonical metrics.
+5. Runbooks and validation procedures reason about those canonical outputs.
 
-Each vLLM instance exposes:
+## Architectural Non-Goals
 
-```text
-/metrics
-```
+This repository does not currently implement:
 
----
+- notification routing
+- anomaly detection
+- cost attribution
+- dynamic service discovery
 
-### Step 2 — Scraping
-
-Prometheus scrapes:
-
-* multiple targets
-* attaches labels (`instance_name`, `env`, `region`)
-
----
-
-### Step 3 — Semantic Transformation
-
-Recording rules produce:
-
-* `usage:*`
-* `latency:*`
-* `runtime:*`
-* `service:*`
-* `http:*`
-
-At:
-
-* instance level
-* model level
-* global level
-
----
-
-### Step 4 — Alert Evaluation
-
-Prometheus evaluates alert rules:
-
-* business-hours aware
-* instance vs global
-
----
-
-### Step 5 — Visualization
-
-Grafana dashboards query canonical metrics.
-
----
-
-## Design Principles
-
----
-
-### 1. Multi-Instance First
-
-The system assumes:
-
-* multiple instances
-* horizontal scaling
-
----
-
-### 2. Separation of Concerns
-
-| Layer            | Responsibility  |
-| ---------------- | --------------- |
-| raw metrics      | vLLM exporter   |
-| semantic metrics | recording rules |
-| alert logic      | alert rules     |
-| visualization    | Grafana         |
-
----
-
-### 3. Label-Driven Architecture
-
-All aggregation depends on:
-
-* `instance_name`
-* `model_name`
-* `env`
-* `region`
-
----
-
-### 4. Metrics-First Design
-
-* no dependency on logs
-* fully Prometheus-based
-
----
-
-### 5. Config-as-Code
-
-All configuration is version-controlled:
-
-* Prometheus config
-* recording rules
-* alert rules
-* dashboards
-
----
-
-## Failure Model
-
-The system distinguishes:
-
-### 1. Instance Failure
-
-* one instance down
-* detected by instance-level alerts
-
----
-
-### 2. Partial Degradation
-
-* one instance slow
-* detected via latency / queue metrics
-
----
-
-### 3. Global Failure
-
-* all instances down
-* or traffic drops to zero
-
----
-
-## Future Extensions
-
----
-
-### Phase 3B — Alert Routing
-
-* Alertmanager
-* Slack / Email integration
-
----
-
-### Phase 4 — Hardening (Current Phase)
-
-* multi-instance support
-* labeling strategy
-* aggregation layers
-
----
-
-### Phase 5 — Advanced Observability
-
-* anomaly detection
-* adaptive thresholds
-* cost attribution per model / team
-
----
-
-## Summary
-
-This architecture provides:
-
-* scalable multi-instance observability
-* consistent metric semantics
-* clear separation between debugging and reporting
-* reliable alerting with business-aware logic
-
-It evolves from a simple monitoring setup into a:
-
-> **production-ready observability platform for vLLM systems**
-
----
+Those are intentionally outside the current Phase 4 scope.

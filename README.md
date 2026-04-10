@@ -1,89 +1,208 @@
 # VLLM Usage Observability
 
-## Project Overview
+## Why This System Exists
 
-VLLM Usage Observability is a metrics-based observability stack for vLLM inference services. It provides:
+vLLM exposes useful Prometheus metrics, but raw exporter metrics are not a sufficient contract for production observability on their own. This repository exists to provide a stable semantic layer for:
 
-- usage accounting from Prometheus counters
-- service availability monitoring
-- engineering diagnostics for latency, queueing, cache behavior, and HTTP error rates
-- dashboards and alerting built on canonical recording rules rather than raw exporter metrics
+- usage accounting
+- service health monitoring
+- engineering diagnostics
+- multi-instance aggregation
+- business-hours-aware alerting
 
-The project is currently implemented through Phase 4:
+The design goal is not "collect as many metrics as possible." The design goal is to turn raw vLLM and HTTP metrics into canonical, queryable signals that engineers can use consistently across dashboards, validation, and alerts.
 
-- Phase 1: metrics definition, validation, and the core observability pipeline
-- Phase 2: Management and Engineering Grafana dashboards
-- Phase 3: alerting, including business-hours-aware availability semantics
-- Phase 4: multi-instance support across Prometheus targets, recording rules, dashboards, and alerts
+## Design Summary
 
-This repository does not currently implement:
-
-- Alertmanager or Slack integration
-- anomaly detection
-- cost attribution
-
-## Architecture Overview
+This repository implements a metrics-first observability stack for vLLM:
 
 ```text
-Multiple vLLM Instances (/metrics)
-        ↓
-Prometheus (scrape + storage)
-        ↓
-Recording Rules (semantic layer)
-        ↓
-Alerting Rules (evaluation layer)
-        ↓
-Grafana (visualization)
+vLLM /metrics
+    -> Prometheus scrape and storage
+    -> canonical recording rules
+    -> alerts and dashboards
 ```
 
-High-level behavior:
+The current implemented scope is Phase 4:
 
-- vLLM instances expose raw Prometheus metrics at `/metrics`
-- Prometheus scrapes those targets and attaches stable labels such as `instance_name`, `env`, and `region`
-- recording rules produce canonical metrics for dashboards and alerts
-- alerting rules evaluate those canonical metrics
-- Grafana provides a management view and an engineering view
+- validated raw metric mapping
+- working Prometheus and Grafana stack
+- Management and Engineering dashboards
+- canonical alerting
+- business-hours-aware availability semantics
+- multi-instance support with instance, model, and global aggregation
 
-For architecture details, see `docs/architecture.md`.
+The runtime architecture is intentionally simple:
 
-## Key Concepts
+- Prometheus scrapes raw metrics
+- recording rules define the semantic contract
+- Grafana and alerts consume canonical metrics
 
-### Metrics Over Logs
+## Core Design Invariants
 
-Metrics are the source of truth for usage accounting, service health, and operational monitoring. Logs may still help with debugging, but dashboards and alerts in this project are intentionally derived from Prometheus metrics.
+The following invariants define the system and should be preserved in future changes:
 
-### Canonical Metrics (Recording Rules)
+1. Metrics are the source of truth for observability in this repository.
+2. Canonical metrics, not raw exporter metrics, are the public semantic interface for dashboards and alerts.
+3. Usage accounting must be counter-safe across restarts and counter resets.
+4. Availability semantics are business-hours aware, not "24/7 always expected up."
+5. Stable labels are required for correct aggregation and alert scope.
+6. Aggregation is explicit and three-layered: `:instance`, `:model`, `:global`.
+7. Management views prefer aggregated service-level signals.
+8. Engineering views prefer instance-level diagnosis.
+9. Runtime semantics must not depend on log parsing or external state.
+10. PromQL semantics are encoded in recording rules and should not be reimplemented ad hoc in dashboards.
 
-Dashboards and alerts should use canonical metrics produced by `deploy/prometheus/recording_rules.yml`, not raw vLLM metrics directly.
+## Semantic Pipeline
 
-Examples:
+The repository defines a semantic pipeline rather than a loose collection of dashboards:
 
-- `usage:*` for requests and tokens
-- `runtime:*` for concurrency, queueing, and cache behavior
-- `latency:*` for p95 and p99 performance signals
-- `service:*` for availability and business-hours semantics
-- `http:*` for request rates, status codes, and error rates
+### 1. Raw Metric Emission
 
-This creates a stable semantic layer that is easier to query and less sensitive to raw metric naming changes.
+vLLM exposes:
 
-### Business-Hours-Aware Availability
+- usage counters
+- runtime gauges
+- latency histograms
+- HTTP request metrics
 
-Availability is not treated as "the service must always be up." The current implementation defines expected availability using:
+### 2. Scrape and Label Attachment
 
-- `service:business_day:asia_taipei`
+Prometheus scrapes one or more vLLM targets and attaches stable dimensions such as:
+
+- `instance_name`
+- `env`
+- `region`
+- `service`
+- `component`
+
+### 3. Canonical Recording Rules
+
+`deploy/prometheus/recording_rules.yml` transforms raw metrics into canonical metrics in five semantic families:
+
+- `usage:*`
+- `runtime:*`
+- `latency:*`
+- `service:*`
+- `http:*`
+
+### 4. Consumption Layer
+
+Everything above the scrape layer should preferentially use canonical metrics:
+
+- Grafana dashboards
+- Prometheus alerts
+- validation queries
+- operational runbooks
+
+For the formal contract, see `docs/semantic-contract.md`.
+
+## Aggregation Model
+
+The repository uses three explicit aggregation layers:
+
+### `:instance`
+
+Used for:
+
+- node-level debugging
+- partial failure detection
+- latency and backlog diagnosis
+
+### `:model`
+
+Used for:
+
+- usage reporting by model
+- cross-instance model aggregation
+- management views of model consumption
+
+### `:global`
+
+Used for:
+
+- service-level health
+- global alerting
+- high-level management summaries
+
+This model is deliberate. It prevents dashboards and alerts from encoding one-off aggregation logic that drifts over time.
+
+## Canonical Metric Families
+
+### `usage:*`
+
+Canonical business accounting metrics derived from vLLM counters. These include:
+
+- request rates
+- hourly increases
+- rolling 24-hour usage
+- prompt, generation, and total token views
+
+### `runtime:*`
+
+Canonical operational state metrics derived from gauges and counters. These include:
+
+- requests running
+- requests waiting
+- KV cache usage
+- prefix cache rates and hit rate
+- preemptions
+
+### `latency:*`
+
+Canonical latency distributions derived from histogram buckets. These include:
+
+- TTFT
+- ITL
+- end-to-end latency
+- queue time
+- prefill, inference, and decode latency
+
+### `service:*`
+
+Canonical availability semantics derived from scrape state and business-day rules. These include:
+
+- raw up status
+- expected up during business hours
+- business-hours-aware availability
+
+### `http:*`
+
+Canonical API metrics derived from HTTP request counters and histograms. These include:
+
+- request rates
+- chat completion request rates
+- chat completion error rate
+- chat completion latency p95
+
+## Business-Hours Availability Model
+
+This repository does not model availability as unconditional uptime.
+
+Instead, it models:
+
+- whether the service is reachable
+- whether the service is expected to be running
+- whether the service is available during expected business hours
+
+The implemented business-day rule is:
+
+- timezone: Asia/Taipei
+- expected up: Monday through Friday
+- expected down: Saturday and Sunday
+
+This distinction matters because weekend shutdowns are treated as scheduled downtime, not outages. Availability alerts therefore consume:
+
 - `service:expected_up:business_hours`
-- `service:availability:business_hours:*`
+- `service:up:raw:*`
 
-Operationally, this means:
+For the decision record behind this, see `docs/adr/004-business-hours-availability.md`.
 
-- weekdays are considered expected service days
-- weekends are treated as scheduled downtime
-- availability alerts are suppressed during expected weekend shutdowns
-
-## Project Structure
+## Repository Structure
 
 ```text
 .
+├── README.md
 ├── docker-compose.yml
 ├── deploy/
 │   ├── grafana/
@@ -98,22 +217,49 @@ Operationally, this means:
 │       ├── prometheus.yml
 │       └── recording_rules.yml
 └── docs/
-    ├── alerting.md
+    ├── adr/
     ├── architecture.md
+    ├── dashboard-philosophy.md
     ├── labeling.md
     ├── metrics.md
     ├── runbook.md
-    └── scaling.md
+    ├── scaling.md
+    ├── semantic-contract.md
+    └── validation.md
 ```
 
-Primary files:
+Key responsibilities:
 
-- `docker-compose.yml`: local Prometheus and Grafana stack
-- `deploy/prometheus/prometheus.yml`: scrape targets and target labels
-- `deploy/prometheus/recording_rules.yml`: canonical metrics
-- `deploy/prometheus/alerts.yml`: Prometheus alert rules
-- `deploy/grafana/dashboards/management.json`: high-level usage and service dashboard
-- `deploy/grafana/dashboards/engineering.json`: per-instance operational dashboard
+- `deploy/prometheus/prometheus.yml`: scrape topology and target labeling
+- `deploy/prometheus/recording_rules.yml`: semantic contract implementation
+- `deploy/prometheus/alerts.yml`: alerting over canonical metrics
+- `deploy/grafana/dashboards/management.json`: management-oriented dashboard
+- `deploy/grafana/dashboards/engineering.json`: engineering-oriented dashboard
+
+## What This Repository Is / Is Not
+
+This repository is:
+
+- a semantic observability layer for vLLM
+- a Prometheus-first implementation
+- a multi-instance metrics architecture through Phase 4
+- a reference for canonical dashboards, alerts, and validation
+
+This repository is not:
+
+- a general logging platform
+- a cost attribution system
+- an anomaly detection system
+- an Alertmanager integration repository
+- a Phase 5 implementation
+
+Not implemented today:
+
+- Alertmanager integration
+- Slack integration
+- anomaly detection
+- cost attribution
+- dynamic service discovery
 
 ## Getting Started
 
@@ -122,32 +268,19 @@ Primary files:
 - Docker and Docker Compose
 - one or more running vLLM instances exposing `/metrics`
 
-### Configure Prometheus Targets
+### Configure Targets
 
-Edit `deploy/prometheus/prometheus.yml` and update `static_configs` under the `vllm` job to match your environment.
+Edit `deploy/prometheus/prometheus.yml` and update the `vllm` `static_configs` to match your deployment.
 
-Each target should have stable labels. The current configuration uses:
+Use stable labels for each target. The current repository expects dimensions such as:
 
-- `service`
-- `component`
+- `instance_name`
 - `env`
 - `region`
-- `instance_name`
+- `service`
+- `component`
 
-`model_name` is part of the documented labeling strategy and is recommended for model-level aggregation. Make sure your scrape targets and exposed metrics provide the labels needed for your deployment.
-
-Example target block:
-
-```yaml
-- targets:
-    - 10.0.0.11:8000
-  labels:
-    service: vllm
-    component: inference
-    env: prod
-    region: tw
-    instance_name: gpt-oss-120b-a
-```
+`model_name` remains an important aggregation dimension and should be present where model-level aggregation is expected.
 
 ### Start the Stack
 
@@ -155,7 +288,7 @@ Example target block:
 docker compose up -d
 ```
 
-### Access Prometheus and Grafana
+### Access the UIs
 
 - Prometheus: http://localhost:9090
 - Grafana: http://localhost:3000
@@ -166,247 +299,38 @@ Default Grafana credentials:
 admin / admin
 ```
 
-The Management dashboard is configured as the default Grafana home dashboard.
-
-## Validation & Known Behaviors
-
-### Basic Validation
-
-After the stack is running, validate the pipeline in Prometheus:
-
-```promql
-up{job="vllm"}
-```
-
-Expected result:
-
-- `1` for reachable targets
-
-Validate raw counters:
-
-```promql
-vllm:prompt_tokens_total
-vllm:generation_tokens_total
-vllm:request_success_total
-```
-
-Validate canonical metrics:
-
-```promql
-usage:tokens:increase1h:global
-service:up:raw:instance
-latency:e2e:p95:global
-```
-
-### Counter Reset Behavior
-
-Usage accounting is derived from counters with `increase()` and rates with `rate()`. If a vLLM instance restarts and raw counters reset to zero:
-
-- raw counters will drop
-- time series may split across restarts
-- canonical usage metrics remain valid over the queried time window
-
-This is a core design assumption from `docs/metrics.md`.
-
-### Rolling 24h Warm-Up
-
-Metrics such as `usage:requests:rolling24h:*` and `usage:tokens:rolling24h:*` are not meaningful immediately after Prometheus starts.
-
-Expected behavior:
-
-- values may be `0` or lower than expected at first
-- full rolling-24-hour views require up to 24 hours of retained samples
-
-### Weekend Shutdown Semantics
-
-The current implementation encodes business-day semantics in Asia/Taipei time:
-
-- Monday through Friday: service is expected to be up
-- Saturday and Sunday: service is treated as expected downtime
-
-As a result:
-
-- `service:expected_up:business_hours` is `0` on weekends
-- business-hours availability alerts do not fire during weekend shutdowns
-- weekend downtime should not be interpreted as an outage by this system
-
-### Impact of `docker run --rm`
-
-Ephemeral vLLM containers are supported from an accounting perspective, but there are operational consequences:
-
-- container restarts reset raw counters
-- Prometheus may observe fragmented time series
-- short-lived containers can make debugging more difficult
-- canonical usage metrics remain correct if labels stay stable and Prometheus sees the samples
-
-## Dashboards
-
-### Management Dashboard
-
-File:
-
-- `deploy/grafana/dashboards/management.json`
-
-Purpose:
-
-- business and service overview
-- model-level usage reporting
-- service-wide health signals
-
-Current coverage includes:
-
-- requests, prompt tokens, generation tokens, and total tokens over 24 hours
-- hourly usage trends
-- usage by model
-- business-hours-aware service availability
-- active instance count
-- global error rate and global end-to-end latency
-
-Use this dashboard first when you need a high-level answer to "how is the overall service behaving?"
-
-### Engineering Dashboard
-
-File:
-
-- `deploy/grafana/dashboards/engineering.json`
-
-Purpose:
-
-- per-instance debugging and operational analysis
-- latency and queue investigation
-- cache and HTTP behavior inspection
-
-Current coverage includes:
-
-- requests running and waiting
-- KV cache usage and prefix cache hit rate
-- selected instance availability
-- per-instance concurrency
-- latency overview and latency breakdown
-- HTTP chat request rate by status
-- HTTP chat latency p95
-
-Use this dashboard when you need to identify which instance is unhealthy and why.
-
-## Alerting
-
-Alerting is implemented in `deploy/prometheus/alerts.yml` and described in `docs/alerting.md`. Alerts are built on canonical metrics and split into instance and global scopes.
-
-Current alert categories include:
-
-- availability
-- API error rate
-- latency
-- queue and backlog
-- cache efficiency
-- traffic drop during business hours
-
-Examples of implemented alerts:
-
-- `VLLMInstanceDownBusinessHours`
-- `VLLMAllInstancesDownBusinessHours`
-- `VLLMChatErrorRateHighInstance`
-- `VLLMChatErrorRateHighGlobal`
-- `VLLME2ELatencyP95HighInstance`
-- `VLLME2ELatencyP95HighGlobal`
-- `VLLMQueueTimeP95HighInstance`
-- `VLLMQueueTimeP95HighGlobal`
-
-Business-hours awareness is part of alert evaluation, so weekend shutdowns do not create false availability pages.
-
-For response procedures, see `docs/runbook.md`.
-
-## Multi-Instance Support
-
-Phase 4 adds multi-instance support across scraping, recording rules, dashboards, and alerts.
-
-Design summary:
-
-- Prometheus scrapes multiple vLLM targets
-- each target is identified with stable labels, especially `instance_name`
-- recording rules generate canonical metrics at three aggregation levels:
-  - `:instance`
-  - `:model`
-  - `:global`
-- dashboards use the aggregation level appropriate to the audience
-- alerts are split into instance and global scopes
-
-Typical usage:
-
-- `:instance` for node-level debugging
-- `:model` for usage reporting across instances serving the same model
-- `:global` for service-wide monitoring
-
-For labeling details, see `docs/labeling.md`.
-
-## Scaling Notes
-
-The system is designed to scale horizontally with additional vLLM instances, but Prometheus cost grows with:
-
-- number of instances
-- number of models
-- label cardinality
-- retention period
-
-Important scaling constraints from `docs/scaling.md`:
-
-- keep labels stable and low cardinality
-- avoid labels such as `user_id`, `request_id`, `session_id`, or timestamps
-- prefer canonical recording rules in dashboards instead of raw metric queries
-- expect instance-level dashboards and alerts to scale roughly with instance count
-- expect Prometheus memory, CPU, and disk use to grow with time series count and retention
-
-The current setup is still based on static Prometheus targets. Dynamic service discovery is future work, not part of the implemented Phase 4 scope.
-
-## Troubleshooting
-
-### Prometheus shows `up{job="vllm"} = 0`
-
-Check:
-
-- the vLLM process is running
-- `/metrics` is reachable from Prometheus
-- target addresses in `deploy/prometheus/prometheus.yml` are correct
-- target labels are valid and consistent
-
-### Management dashboard shows zero or low 24h usage after startup
-
-This is usually normal during the rolling-window warm-up period. Wait for enough history to accumulate before treating it as a data problem.
-
-### Dashboards look inconsistent across instances
-
-Check labeling first:
-
-- `instance_name` should be stable and unique
-- `env` and `region` should be set consistently
-- `model_name` should be present where model-level aggregation is expected
-
-### Availability alert behavior looks wrong on weekends
-
-Verify the intended semantics before changing anything:
-
-- this project currently treats weekends as scheduled downtime
-- the business-day rule is encoded in Asia/Taipei time
-
-### Counters appear to reset unexpectedly
-
-This usually indicates a vLLM restart or an ephemeral container lifecycle. Confirm the restart event before treating the metric drop as data corruption.
-
-For operational alert response flows, see `docs/runbook.md`.
-
-## Roadmap / Future Work
-
-The following items are not implemented in this repository today:
-
-- Alertmanager integration
-- Slack or other notification routing
-- anomaly detection
-- cost attribution
-- dynamic service discovery for large-scale target management
-
-Any future work should preserve the current design principles:
-
-- metrics as the source of truth
-- canonical recording rules as the semantic layer
-- stable, low-cardinality labels
-- clear separation between instance, model, and global aggregation
+The Management dashboard is configured as the Grafana home dashboard.
+
+## Validation Model
+
+Validation in this repository follows the semantic pipeline:
+
+1. validate raw metrics exist
+2. validate scrape health
+3. validate canonical metrics are populated
+4. validate expected behavior under resets and warm-up windows
+5. validate dashboards and alerts against canonical metrics, not raw queries
+
+Important known behaviors:
+
+- counter resets are expected across restarts and handled through `increase()` and `rate()`
+- rolling 24-hour metrics require warm-up time after Prometheus starts
+- weekend downtime is expected by design
+- ephemeral containers created with `docker run --rm` can fragment time series while preserving accounting correctness if labels remain stable
+
+See `docs/validation.md` for the full validation model.
+
+## Further Reading
+
+- `docs/architecture.md`
+- `docs/semantic-contract.md`
+- `docs/metrics.md`
+- `docs/labeling.md`
+- `docs/dashboard-philosophy.md`
+- `docs/validation.md`
+- `docs/runbook.md`
+- `docs/scaling.md`
+- `docs/adr/001-metrics-first.md`
+- `docs/adr/002-canonical-recording-rules.md`
+- `docs/adr/003-three-layer-aggregation.md`
+- `docs/adr/004-business-hours-availability.md`

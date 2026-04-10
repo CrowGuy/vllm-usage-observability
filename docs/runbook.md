@@ -1,521 +1,205 @@
-# Runbook — VLLM Usage Observability
+# Runbook
 
-## Overview
+## Purpose
 
-This runbook provides operational guidance for responding to alerts in a **multi-instance vLLM environment**.
+This runbook explains how to respond to alerts using the semantic model defined by the repository.
 
-It helps engineers:
+The first principle is:
 
-* identify failing instances
-* diagnose performance issues
-* distinguish between local and global problems
-* apply mitigation steps quickly
+- use canonical metrics to determine scope
+- then use dashboards to diagnose cause
 
----
+## Scope Model
 
-## System Model
+Alerts in this repository are intentionally split by scope:
 
-The system consists of:
+- `instance`: one node or target is unhealthy
+- `global`: the service as a whole is unhealthy
 
-* multiple vLLM instances
-* Prometheus (metrics + alerting)
-* Grafana dashboards
-
-Key dimensions:
-
-* `instance_name` → node-level debugging
-* `model_name` → usage aggregation
-* `env` / `region` → deployment scope
-
----
+That scope is not cosmetic. It should guide diagnosis immediately.
 
 ## General Workflow
 
-### Step 1 — Identify Alert
+1. Identify the alert name and scope.
+2. Confirm the corresponding canonical metric.
+3. Open the appropriate dashboard.
+4. Decide whether the problem is local or systemic.
+5. Apply the smallest safe remediation.
 
-From Prometheus:
-
-* alert name
-* severity
-* scope:
-
-  * `instance`
-  * `global`
-
----
-
-### Step 2 — Determine Scope
-
-| Scope    | Meaning                 |
-| -------- | ----------------------- |
-| instance | one node affected       |
-| global   | entire service affected |
-
----
-
-### Step 3 — Open Dashboard
-
-```text
-http://localhost:3000
-```
+## Dashboard Choice
 
 Use:
 
-* **Engineering Dashboard** → debugging
-* **Management Dashboard** → overall health
+- Management dashboard for service-wide state
+- Engineering dashboard for instance-level diagnosis
 
----
+## Alert Playbooks
 
-### Step 4 — Apply Playbook
+### `VLLMInstanceDownBusinessHours`
 
-Follow the relevant section below.
-
----
-
-# Alert Playbooks
-
----
-
-## 1. Instance Down
-
-**Alert**
-
-```
-VLLMInstanceDownBusinessHours
-```
-
----
-
-### Check
+Check:
 
 ```promql
 service:up:raw:instance
 ```
 
----
+Interpretation:
 
-### Interpretation
+- one instance at `0` with others healthy indicates a local failure
 
-* `0` → instance unreachable
-* others still `1` → partial failure
+Actions:
 
----
+- confirm the container or host is running
+- confirm `/metrics` is reachable from Prometheus
+- restart the affected instance if appropriate
 
-### Actions
+### `VLLMAllInstancesDownBusinessHours`
 
-1. Check container:
-
-```bash
-docker ps
-```
-
-2. Restart instance:
-
-```bash
-docker restart <vllm-container>
-```
-
-3. Verify endpoint:
-
-```bash
-curl http://<host>:8000/metrics
-```
-
----
-
-### If Multiple Instances Down
-
-Escalate as **global issue**.
-
----
-
-## 2. All Instances Down
-
-**Alert**
-
-```
-VLLMAllInstancesDownBusinessHours
-```
-
----
-
-### Check
+Check:
 
 ```promql
 service:up:raw:global
 ```
 
----
+Interpretation:
 
-### Possible Causes
+- global `0` during business hours indicates service-wide unavailability
 
-* network outage
-* Prometheus cannot reach all targets
-* global infrastructure issue
+Actions:
 
----
+- verify Prometheus target status
+- verify network connectivity
+- check whether there is a broader infrastructure issue
 
-### Actions
+### `VLLMChatErrorRateHighInstance` and `VLLMChatErrorRateHighGlobal`
 
-* verify network connectivity
-* check firewall / routing
-* verify Prometheus target status
-
----
-
-## 3. High Error Rate
-
-### Instance
-
-```
-VLLMChatErrorRateHighInstance
-```
-
-### Global
-
-```
-VLLMChatErrorRateHighGlobal
-```
-
----
-
-### Check
+Check:
 
 ```promql
 http:chat_completions:error_rate5m:instance
-```
-
-```promql
 http:chat_completions:error_rate5m:global
 ```
 
----
+Interpretation:
 
-### Diagnosis
+- instance-only increase suggests a local node problem
+- global increase suggests system-wide request or service failure
 
-| Pattern              | Meaning           |
-| -------------------- | ----------------- |
-| single instance high | node issue        |
-| global high          | system-wide issue |
+Actions:
 
----
+- inspect request patterns
+- compare with latency and backlog
+- validate whether failures are client-side, backend-side, or overload-related
 
-### Actions
+### `VLLME2ELatencyP95HighInstance` and `VLLME2ELatencyP95HighGlobal`
 
-* inspect request patterns
-* check latency correlation
-* validate client inputs
-* reduce load if needed
-
----
-
-## 4. High Latency
-
-### Instance
-
-```
-VLLME2ELatencyP95HighInstance
-```
-
-### Global
-
-```
-VLLME2ELatencyP95HighGlobal
-```
-
----
-
-### Check
+Check:
 
 ```promql
 latency:e2e:p95:instance
 latency:ttft:p95:instance
 latency:itl:p95:instance
+latency:queue_time:p95:instance
+runtime:requests_waiting:instance
 ```
 
----
+Interpretation:
 
-### Diagnosis
+- TTFT increase suggests prompt or prefill-side problems
+- ITL increase suggests decode-side slowdown
+- queue increase suggests overload or insufficient capacity
 
-| Metric  | Meaning                 |
-| ------- | ----------------------- |
-| TTFT ↑  | prompt processing issue |
-| ITL ↑   | decode slowdown         |
-| queue ↑ | overload                |
+Actions:
 
----
+- determine whether the issue is localized or global
+- inspect backlog and concurrency
+- reduce load or restore capacity as needed
 
-### Actions
+### `VLLMQueueTimeP95HighInstance` and `VLLMQueueTimeP95HighGlobal`
 
-1. Check queue:
+Check:
 
 ```promql
 latency:queue_time:p95:instance
+runtime:requests_waiting:instance
+runtime:requests_running:instance
 ```
 
-2. Check backlog:
+Interpretation:
+
+- queue time increase with waiting backlog usually indicates overload
+
+Actions:
+
+- inspect affected instances
+- compare waiting vs running requests
+- determine whether scaling or traffic reduction is needed
+
+### `VLLMRequestsWaitingHighInstance` and `VLLMRequestsWaitingHighGlobal`
+
+Check:
 
 ```promql
 runtime:requests_waiting:instance
+runtime:requests_waiting:global
 ```
 
-3. If overloaded:
+Interpretation:
 
-* reduce traffic
-* scale instances
+- waiting backlog is a direct saturation signal
 
----
+Actions:
 
-## 5. Queue / Backlog Issues
+- correlate with queue time and latency
+- check whether capacity loss or traffic increase explains the backlog
 
-### Alerts
+### `VLLMPrefixCacheHitRateLowInstance` and `VLLMPrefixCacheHitRateLowGlobal`
 
-* `VLLMQueueTimeP95HighInstance`
-* `VLLMRequestsWaitingHighInstance`
-
----
-
-### Check
-
-```promql
-runtime:requests_waiting:instance
-```
-
----
-
-### Interpretation
-
-* high waiting → system saturated
-
----
-
-### Actions
-
-* reduce concurrent load
-* scale horizontally
-* inspect prompt size
-
----
-
-## 6. Traffic Drop
-
-### Instance
-
-```
-VLLMInstanceTrafficDropBusinessHours
-```
-
-### Global
-
-```
-VLLMGlobalTrafficDropBusinessHours
-```
-
----
-
-### Check
-
-```promql
-http:chat_completions:requests:rate5m:instance
-```
-
----
-
-### Diagnosis
-
-| Pattern              | Meaning           |
-| -------------------- | ----------------- |
-| single instance drop | routing imbalance |
-| global drop          | upstream issue    |
-
----
-
-### Actions
-
-* verify upstream services
-* check API gateway / routing
-* confirm clients are active
-
----
-
-## 7. Cache Efficiency Low
-
-### Alerts
-
-* `VLLMPrefixCacheHitRateLowInstance`
-* `VLLMPrefixCacheHitRateLowGlobal`
-
----
-
-### Check
+Check:
 
 ```promql
 runtime:prefix_cache_hit_rate5m:instance
+runtime:prefix_cache_hit_rate5m:global
+http:chat_completions:requests:rate5m:instance
+http:chat_completions:requests:rate5m:global
 ```
 
----
+Interpretation:
 
-### Interpretation
+- low hit rate under meaningful traffic is an efficiency signal, not necessarily an outage
 
-* low hit rate → cache not effective
+Actions:
 
----
+- confirm traffic exists
+- inspect whether workload shape changed
+- treat as optimization or workload-pattern investigation unless accompanied by user-facing degradation
 
-### Actions
+### `VLLMInstanceTrafficDropBusinessHours` and `VLLMGlobalTrafficDropBusinessHours`
 
-* analyze workload patterns
-* not critical (info-level)
-
----
-
-# Debugging Patterns (Important)
-
----
-
-## Pattern 1 — Single Instance Degradation
-
-Symptoms:
-
-* one instance slow
-* others normal
-
-Action:
-
-* isolate via `instance_name`
-* consider restarting node
-
----
-
-## Pattern 2 — Partial Capacity Loss
-
-Symptoms:
-
-* one instance down
-* others overloaded
-
-Action:
-
-* restore failed instance quickly
-
----
-
-## Pattern 3 — Global Saturation
-
-Symptoms:
-
-* all instances high latency
-* queue builds everywhere
-
-Action:
-
-* scale horizontally
-* reduce load
-
----
-
-## Pattern 4 — Upstream Failure
-
-Symptoms:
-
-* traffic drops to zero
-* service still up
-
-Action:
-
-* check upstream systems
-
----
-
-# Useful Queries
-
----
-
-### Instance Health
-
-```promql
-service:up:raw:instance
-```
-
----
-
-### Active Instances
-
-```promql
-count(service:up:raw:instance)
-```
-
----
-
-### Traffic
+Check:
 
 ```promql
 http:chat_completions:requests:rate5m:instance
+http:chat_completions:requests:rate5m:global
+service:up:raw:instance
+service:up:raw:global
 ```
 
----
+Interpretation:
 
-### Errors
+- service can be healthy while traffic is unexpectedly low
 
-```promql
-http:chat_completions:error_rate5m:instance
-```
+Actions:
 
----
+- confirm business-hours expectation applies
+- determine whether the drop is upstream demand or internal routing failure
 
-### Latency
+## Important Semantics
 
-```promql
-latency:e2e:p95:instance
-```
+### Weekends
 
----
+Availability alerts are business-hours aware. Weekend shutdowns are expected and should not be handled as outages by default.
 
-### Queue
+### Counter Resets
 
-```promql
-runtime:requests_waiting:instance
-```
-
----
-
-# Operational Guidelines
-
----
-
-## When Adding New Instances
-
-* verify labels are correct
-* ensure instance appears in dashboard
-* confirm metrics ingestion
-
----
-
-## When Scaling
-
-* monitor Prometheus memory
-* avoid cardinality explosion
-* use aggregation metrics
-
----
-
-## Alert Tuning
-
-* adjust thresholds based on real usage
-* avoid over-sensitive alerts
-* prefer stability over sensitivity
-
----
-
-# Summary
-
-This runbook enables:
-
-* fast incident response
-* clear distinction between instance vs global issues
-* effective debugging in multi-instance environments
-
-It is designed for:
-
-> **production operations of vLLM at scale**
-
----
+Counter resets usually indicate restart behavior, not accounting corruption. Use canonical usage metrics to confirm business totals before escalating data-integrity concerns.

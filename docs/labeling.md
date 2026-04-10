@@ -1,196 +1,116 @@
-# Labeling Strategy — VLLM Usage Observability
+# Labeling Strategy
 
-## Overview
+## Purpose
 
-This document defines the labeling strategy for the observability system.
+Labeling is what makes the aggregation model correct. Without stable labels, multi-instance semantics break down.
 
-A correct labeling strategy is critical for:
+## Design Rules
 
-* multi-instance support
-* accurate aggregation
-* reliable alerting
-* scalable Prometheus usage
+### 1. Labels Represent Stable Dimensions
 
----
+Labels should encode stable dimensions such as:
 
-## Design Principles
+- instance identity
+- model identity
+- environment
+- region
 
-### 1. Labels Represent Dimensions
+### 2. Labels Must Be Low Cardinality
 
-Each label must represent a **stable, meaningful dimension**:
+Avoid labels that grow without bound, such as:
 
-* identity (instance)
-* logical grouping (model)
-* environment (env)
-* deployment location (region)
+- `user_id`
+- `request_id`
+- `session_id`
+- timestamps
 
----
+These are unsafe for Prometheus and incompatible with the intended semantic model.
 
-### 2. Labels Must Be Stable
+### 3. Labels Should Not Mix Concerns
 
-Labels should **not change frequently**.
+Each label should mean one thing:
 
-Bad examples:
-
-* container_id
-* pod_uid
-* random hash
-
-Good examples:
-
-* instance_name
-* model_name
-* env
-
----
-
-### 3. Low Cardinality
-
-Avoid labels with high or unbounded values:
-
-* user_id ❌
-* request_id ❌
-* timestamp ❌
-
-Reason:
-
-* Prometheus memory explosion
-* slow queries
-
----
-
-### 4. Separation of Concerns
-
-Do not mix unrelated concepts into one label.
-
-Example:
-
-| Label         | Meaning                      |
-| ------------- | ---------------------------- |
-| instance_name | physical machine / container |
-| model_name    | model served                 |
-| env           | environment                  |
-
----
+- `instance_name`: instance identity
+- `model_name`: served model identity
+- `env`: deployment environment
+- `region`: deployment region
 
 ## Standard Labels
 
-### 1. `instance_name` (Required)
+### `instance_name`
 
-**Definition**
+Status:
 
-* unique identifier for each vLLM instance
+- required for instance-level semantics
 
-**Examples**
+Properties:
 
-```text
-gpt-oss-120b-a
-gpt-oss-120b-b
-llama3-70b-a
-```
+- stable across restarts
+- human-readable
+- unique within the deployment scope
 
-**Properties**
+### `model_name`
 
-* stable across restarts
-* human-readable
-* unique within environment
+Status:
 
----
+- strongly recommended for model-level usage aggregation
 
-### 2. `model_name` (Recommended)
+Purpose:
 
-**Definition**
+- aggregate usage across instances serving the same model
 
-* model served by the instance
+### `env`
 
-**Examples**
+Status:
 
-```text
-gpt-oss-120b
-llama3-70b
-```
+- required
 
-**Purpose**
+Purpose:
 
-* aggregation by model
-* cost / usage breakdown
+- prevent accidental cross-environment aggregation
 
----
+### `region`
 
-### 3. `env` (Required)
+Status:
 
-**Definition**
+- recommended
 
-* deployment environment
+Purpose:
 
-**Examples**
+- preserve regional scope in global queries
 
-```text
-prod
-staging
-dev
-```
+### `service`
 
-**Purpose**
+Status:
 
-* isolate environments
-* prevent mixing data
+- required in current Prometheus target labeling
 
----
+Purpose:
 
-### 4. `region` (Optional)
+- identify the logical service
 
-**Definition**
+### `component`
 
-* deployment location
+Status:
 
-**Examples**
+- recommended
 
-```text
-tw
-us-east
-eu-west
-```
+Purpose:
 
-**Purpose**
+- distinguish inference from monitoring components
 
-* geo-level aggregation
-* latency analysis
+## Why Stable Labels Matter
 
----
+Stable labels are required for:
 
-### 5. `service` (Required)
+- `:instance` diagnosis
+- `:model` usage reporting
+- `:global` service monitoring
+- correct alert scope
 
-**Definition**
+If instance identity changes on every restart, the system can still preserve some accounting semantics through counters and windows, but diagnosis and continuity become harder.
 
-* logical service name
-
-**Example**
-
-```text
-vllm
-```
-
----
-
-### 6. `component` (Recommended)
-
-**Definition**
-
-* system component
-
-**Examples**
-
-```text
-inference
-monitoring
-```
-
----
-
-## Label Usage in Prometheus
-
-Example:
+## Prometheus Example
 
 ```yaml
 scrape_configs:
@@ -202,184 +122,41 @@ scrape_configs:
           service: vllm
           component: inference
           env: prod
+          region: tw
           instance_name: gpt-oss-120b-a
           model_name: gpt-oss-120b
 ```
 
----
+## Aggregation Guidance
 
-## Aggregation Strategy
+### Instance
 
-### 1. Per Instance
+Use when the question is:
 
-```promql
-sum by (instance_name)
-```
+- which node is unhealthy?
+- which node is slow?
+- which node has backlog?
 
-Use when:
+### Model
 
-* debugging
-* identifying slow node
-* detecting single-node failure
+Use when the question is:
 
----
+- how much usage did this model receive?
+- how do model groups compare?
 
-### 2. Per Model
+### Global
 
-```promql
-sum by (model_name)
-```
+Use when the question is:
 
-Use when:
-
-* comparing models
-* usage reporting
-
----
-
-### 3. Global Aggregation
-
-```promql
-sum without (instance_name)
-```
-
-Use when:
-
-* system-wide health
-* management dashboard
-
----
-
-## Recommended Patterns
-
-### Usage Metrics
-
-```promql
-sum by (model_name) (usage:tokens:increase1h)
-```
-
----
-
-### Latency Metrics
-
-```promql
-avg by (instance_name) (latency:e2e:p95)
-```
-
----
-
-### Runtime Metrics
-
-```promql
-sum by (instance_name) (runtime:requests_waiting)
-```
-
----
+- is the service healthy overall?
+- is there a cross-instance issue?
 
 ## Anti-Patterns
 
-### 1. Mixing Dimensions
+Do not use:
 
-Bad:
+- ephemeral IDs as identity labels
+- request-specific values as labels
+- business logic encoded implicitly in labels
 
-```text
-instance = gpt-oss-120b-a-prod
-```
-
-Good:
-
-```text
-instance_name = gpt-oss-120b-a
-env = prod
-```
-
----
-
-### 2. High Cardinality Labels
-
-Bad:
-
-```text
-user_id = 123456
-request_id = abcdef
-```
-
----
-
-### 3. Using IP as Identity
-
-Bad:
-
-```text
-instance = 10.0.0.11:8000
-```
-
-Reason:
-
-* changes over time
-* not human-readable
-
----
-
-## Dashboard Implications
-
-Dashboards should support:
-
-* filtering by `instance_name`
-* filtering by `model_name`
-* filtering by `env`
-
-Typical Grafana variables:
-
-* instance_name
-* model_name
-
----
-
-## Alerting Implications
-
-### Global Alerts
-
-```promql
-sum(...) > threshold
-```
-
----
-
-### Per-Instance Alerts
-
-```promql
-by (instance_name)
-```
-
----
-
-## Migration Notes
-
-When moving from single-instance to multi-instance:
-
-1. Add labels in `prometheus.yml`
-2. Update recording rules to include aggregation
-3. Update dashboards to support filtering
-4. Update alerts to distinguish global vs instance-level
-
----
-
-## Summary
-
-A correct labeling strategy enables:
-
-* scalable observability
-* accurate aggregation
-* meaningful dashboards
-* reliable alerting
-
-The most critical labels are:
-
-* `instance_name`
-* `model_name`
-* `env`
-
-These form the foundation for all future system extensions.
-
----
+The aggregation model assumes labels are stable dimensions, not event payloads.

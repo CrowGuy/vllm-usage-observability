@@ -1,376 +1,137 @@
-# Scaling — VLLM Usage Observability
+# Scaling
 
-## Overview
+## Purpose
 
-This document describes how the observability system behaves as the number of vLLM instances increases, and how to scale it safely.
+This document explains how the semantic observability design behaves as deployment size increases.
 
-The system is designed to support:
-
-* horizontal scaling of vLLM instances
-* multi-model deployments
-* long-term metric retention
-
----
+The key scaling question is not only "can Prometheus scrape more targets?" It is also "does the semantic model remain clear and affordable as target count grows?"
 
 ## Scaling Dimensions
 
-The system scales along three primary axes:
+The system scales along these axes:
 
-### 1. Number of Instances
-
-* more vLLM containers / machines
-* each instance adds:
-
-  * metrics
-  * time series
-  * scrape load
-
----
-
-### 2. Number of Models
-
-* multiple models deployed simultaneously
-* increases label combinations (`model_name`)
-
----
-
-### 3. Metric Cardinality
-
-* number of unique label combinations
-* directly impacts Prometheus memory usage
-
----
-
-## What Happens When You Scale
-
-### More Instances → More Time Series
+### Number of Instances
 
 Each new instance adds:
 
-* duplicate metric families (same metric name)
-* new label combination (`instance_name`)
+- another scrape target
+- another set of raw metric series
+- more instance-level canonical outputs
 
-Example:
+### Number of Models
 
-```text id="6z9n1y"
-vllm:prompt_tokens_total{instance_name="a"}
-vllm:prompt_tokens_total{instance_name="b"}
-vllm:prompt_tokens_total{instance_name="c"}
-```
+Each additional model increases:
 
----
+- model-level aggregation combinations
+- usage reporting dimensionality
 
-### Impact on Prometheus
+### Label Cardinality
 
-| Component   | Impact                           |
-| ----------- | -------------------------------- |
-| Memory      | increases with time series count |
-| CPU         | increases with query complexity  |
-| Disk        | increases with retention         |
-| Scrape load | linear with number of targets    |
+Cardinality is often the real scaling limit.
 
----
+Unsafe labels can make the system unusable even at modest instance counts.
 
-## Label Cardinality Control
+## Why the Aggregation Model Matters
 
-### Safe Labels
+The three-layer aggregation design is a scaling control mechanism:
 
-* `instance_name`
-* `model_name`
-* `env`
-* `region`
+- `:instance` keeps diagnosis explicit
+- `:model` keeps reporting stable
+- `:global` keeps service monitoring readable
 
----
+Without this structure:
 
-### Dangerous Labels (Do NOT use)
+- dashboard queries become harder to reason about
+- alert semantics drift
+- PromQL duplication grows
 
-* `user_id`
-* `request_id`
-* `session_id`
-* timestamps
+## Prometheus Impact
 
-These create **unbounded cardinality** and will break Prometheus.
+As instance count increases, expect:
 
----
+- memory growth from more active series
+- CPU growth from more queries and rule evaluation
+- disk growth from retention
+- linear scrape load growth
 
-## Aggregation Strategy (Critical)
+Representative Prometheus metrics to watch:
 
-The system uses **three aggregation layers**:
-
-| Level    | Purpose    |
-| -------- | ---------- |
-| instance | debugging  |
-| model    | reporting  |
-| global   | monitoring |
-
----
-
-### Why This Matters
-
-Without aggregation:
-
-* dashboards become slow
-* queries explode in complexity
-* alerts become unreliable
-
----
-
-### Example
-
-Bad (no aggregation):
-
-```promql id="bad1"
-vllm:prompt_tokens_total
-```
-
-Good:
-
-```promql id="good1"
-usage:tokens:rolling24h:global
-```
-
----
-
-## Prometheus Scaling Limits
-
-### Rule of Thumb
-
-| Scale          | Recommendation              |
-| -------------- | --------------------------- |
-| ≤ 5 instances  | current setup OK            |
-| 5–20 instances | monitor memory closely      |
-| 20+ instances  | consider scaling Prometheus |
-
----
-
-### Key Metrics to Watch
-
-```promql id="k1"
+```promql
 prometheus_tsdb_head_series
-```
-
-```promql id="k2"
 prometheus_tsdb_head_chunks
-```
-
-```promql id="k3"
 process_resident_memory_bytes
 ```
 
----
+## Labeling Discipline
 
-## Scrape Strategy
+Safe dimensions in this repository include:
 
-### Current
+- `instance_name`
+- `model_name`
+- `env`
+- `region`
 
-* static_configs
-* fixed targets
+Avoid unbounded labels such as:
 
----
+- `user_id`
+- `request_id`
+- `session_id`
+- timestamps
 
-### When Scaling
+These are incompatible with the current design.
 
-You may need:
-
-* service discovery (future)
-* dynamic target management
-
----
-
-## Recording Rules Efficiency
-
-Recording rules reduce query cost by:
-
-* precomputing aggregates
-* reducing repeated computation
-
----
-
-### Important Practice
-
-Always use:
-
-* `usage:*`
-* `latency:*`
-* `runtime:*`
-
-Avoid querying raw metrics directly in dashboards.
-
----
-
-## Dashboard Scaling Behavior
-
-### Engineering Dashboard
-
-* scales with number of instances
-* each instance adds more lines
-
-Mitigation:
-
-* use `instance_name` filter
-* avoid showing too many instances at once
-
----
+## Dashboard Scaling
 
 ### Management Dashboard
 
-* uses aggregated metrics
-* remains stable regardless of instance count
+The Management dashboard should remain relatively stable as instance count grows because it mostly consumes aggregated signals.
 
----
+### Engineering Dashboard
 
-## Alerting at Scale
+The Engineering dashboard naturally grows noisier with instance count because its purpose is diagnosis. Use instance filters aggressively to keep it readable.
+
+## Alert Scaling
 
 ### Instance Alerts
 
-* scale linearly with instance count
-* more instances → more potential alerts
-
----
+Instance alerts scale with fleet size. More instances mean more possible local failures.
 
 ### Global Alerts
 
-* stable regardless of instance count
-* used for service-level monitoring
+Global alerts remain fleet-wide signals and should stay comparatively stable as the deployment grows.
 
----
+## Current Operational Boundary
 
-### Alert Noise Control
+The current repository uses static Prometheus target configuration.
 
-* use `for:` durations (5–30 min)
-* avoid reacting to short spikes
+That is acceptable for the current Phase 4 scope, but future larger-scale deployments may need:
 
----
+- dynamic target management
+- service discovery
+- stronger Prometheus capacity planning
 
-## Retention Strategy
+These are future concerns, not current repository capabilities.
 
-Prometheus stores time series data locally.
+## Retention
 
-### Key Setting
+Prometheus retention directly affects disk consumption and query range cost. The current Docker Compose configuration uses 30-day retention.
 
-```yaml id="ret1"
---storage.tsdb.retention.time=15d
-```
+Longer retention means:
 
----
+- more disk use
+- more historical visibility
 
-### Trade-offs
+Shorter retention means:
 
-| Retention | Impact               |
-| --------- | -------------------- |
-| longer    | more disk usage      |
-| shorter   | less historical data |
+- less disk use
+- less long-window visibility
 
----
+## Practical Guidance
 
-## When to Scale Prometheus
+As scale increases:
 
-You should consider scaling Prometheus when:
-
-* memory usage is consistently high (>70%)
-* query latency increases
-* dashboards become slow
-* time series count grows rapidly
-
----
-
-## Scaling Options
-
-### 1. Vertical Scaling
-
-* more RAM
-* more CPU
-
----
-
-### 2. Horizontal Scaling (Advanced)
-
-* sharded Prometheus
-* remote storage (future)
-
----
-
-## Operational Guidelines
-
-### Adding Instances
-
-* ensure labels are correct
-* verify metrics appear
-* confirm dashboards update automatically
-
----
-
-### Monitoring Growth
-
-Track:
-
-```promql id="g1"
-count(up{job="vllm"})
-```
-
----
-
-### Detect Cardinality Issues
-
-```promql id="g2"
-topk(10, count by (__name__)({__name__=~".+"}))
-```
-
----
-
-## Anti-Patterns
-
-### 1. Querying Raw Metrics in Dashboards
-
-Bad:
-
-```promql id="a1"
-vllm:prompt_tokens_total
-```
-
----
-
-### 2. Ignoring Labels in Aggregation
-
-Bad:
-
-```promql id="a2"
-sum(vllm:prompt_tokens_total)
-```
-
----
-
-### 3. Mixing Aggregation Levels
-
-Bad:
-
-```promql id="a3"
-sum by (instance_name) (...) + sum by (model_name) (...)
-```
-
----
-
-## Future Scaling (Phase 5)
-
-* remote write (Thanos / Cortex / Mimir)
-* long-term storage
-* anomaly detection
-* per-team cost tracking
-
----
-
-## Summary
-
-Scaling the system requires:
-
-* strict label discipline
-* correct aggregation usage
-* monitoring Prometheus resource usage
-
-The system is designed to:
-
-* scale horizontally with instances
-* remain stable via aggregation layers
-* provide consistent observability at any scale
-
----
+1. preserve stable labels
+2. prefer canonical metrics over raw queries
+3. keep management and engineering views separate
+4. watch Prometheus resource metrics
+5. resist introducing high-cardinality labels
